@@ -1271,7 +1271,8 @@ function formatMoneySign(n) {
 function formatPct(n) {
   if (n === null || n === undefined || isNaN(n)) return '—';
   const sign = n >= 0 ? '+' : '';
-  return sign + n.toFixed(2) + '%';
+  const absFormatted = Math.abs(n).toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return sign + (n < 0 ? '-' : '') + absFormatted + '%';
 }
 function formatDt(isoStr) {
   if (!isoStr) return '—';
@@ -1710,7 +1711,7 @@ function setKPI(invested, balance, pnl, returnPct, annualReturn, annualReturnDel
   annualDeltaEl.className = 'kpi-annual-delta num';
   if (annualReturnDelta !== null) {
     const emoji = annualReturnDelta >= 0 ? '▲' : '▼';
-    annualDeltaEl.textContent = `(${emoji} ${Math.abs(annualReturnDelta).toFixed(2)}%)`;
+    annualDeltaEl.textContent = `(${emoji} ${Math.abs(annualReturnDelta).toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%)`;  
     applyColorClass(annualDeltaEl, annualReturnDelta);
   }
 
@@ -2611,7 +2612,8 @@ function renderLineChart() {
             const yVal = chart.scales.y.getPixelForValue(pt.y);
             if (isNaN(xVal) || isNaN(yVal)) return;
             const sign = pt.y >= 0 ? '+' : '';
-            const text = `${prefix}${sign}${pt.y.toFixed(2)}%`;
+            const absF = Math.abs(pt.y).toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            const text = `${prefix}${sign}${pt.y < 0 ? '-' : ''}${absF}%`;
             cCtx.save();
             cCtx.font = 'bold 11px Pretendard, sans-serif';
             const tw = cCtx.measureText(text).width;
@@ -2646,7 +2648,7 @@ function renderLineChart() {
         annotation: {
           enter(ctx) {
             const anno = ctx.element;
-            if (!anno._tooltipLines) return;
+            if (!anno.options._tooltipLines) return;
             const tip = $('anno-tooltip');
             const wrapper = tip.parentElement;
             const wRect = wrapper.getBoundingClientRect();
@@ -2692,7 +2694,8 @@ function renderLineChart() {
               const v = ctx.parsed.y;
               if (v === null || v === undefined) return null;
               const sign = v >= 0 ? '+' : '';
-              return `${ctx.dataset.label}: ${sign}${v.toFixed(2)}%`;
+              const absF = Math.abs(v).toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+              return `${ctx.dataset.label}: ${sign}${v < 0 ? '-' : ''}${absF}%`;
             }
           }
         }
