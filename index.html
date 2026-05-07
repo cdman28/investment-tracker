@@ -2208,8 +2208,8 @@ function renderLineChart() {
   // 시작 날짜 표시
   const startDate = new Date(sortedKeys[0] + 'T00:00:00');
   const y = startDate.getFullYear();
-  const m = String(startDate.getMonth() + 1).padStart(2, '0');
-  const d = String(startDate.getDate()).padStart(2, '0');
+  const m = startDate.getMonth() + 1;
+  const d = startDate.getDate();
   const startDateStr = `${y}/${m}/${d}`;
   $('chart-start-date').textContent = startDateStr;
 
