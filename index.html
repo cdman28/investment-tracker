@@ -2186,8 +2186,9 @@ function renderLineChart() {
   const period = state.activePeriod;
   const ctx = $('line-chart').getContext('2d');
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-  const gridColor = '#000000';
-  const textColor = '#000000';
+  const gridColor = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)';
+  const zeroLineColor = isDark ? 'rgba(255,255,255,0.7)' : '#000000';
+  const textColor = isDark ? '#F0EFE9' : '#000000';
 
   let datasets = [];
   let hasData = false;
@@ -2370,7 +2371,7 @@ function renderLineChart() {
           position: 'left',
           min: yScaleMin,
           max: yScaleMax,
-          grid: { color: gridColor },
+          grid: { color: ctx => ctx.tick.value === 0 ? zeroLineColor : gridColor },
           ticks: {
             color: textColor,
             font: { family: 'Pretendard', size: 11 },
