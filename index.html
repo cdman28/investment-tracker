@@ -1549,19 +1549,31 @@ function calcBroker(brokerId) {
     if (days >= 1) {
       annualReturn = (Math.pow(1 + returnPct / 100, 365 / days) - 1) * 100;
 
-      // 직전 잔고 기록 기준 이전 CAGR 계산
+      // 직전 잔고 기록 기준 이전 CAGR 계산 (같은 날 입력값 제외, 이전 날의 가장 최근 기록)
       if (bals.length >= 2) {
-        const prevBal = bals[bals.length - 2];
-        const prevCutoff = new Date(prevBal.recorded_at);
-        const prevCfs = cfs.filter(r => new Date(r.transacted_at) <= prevCutoff);
-        const prevDeposit    = prevCfs.filter(r => r.type === 'deposit').reduce((s, r) => s + r.amount, 0);
-        const prevWithdrawal = prevCfs.filter(r => r.type === 'withdrawal').reduce((s, r) => s + r.amount, 0);
-        if (prevDeposit > 0) {
-          const prevReturnPct = (prevBal.balance + prevWithdrawal - prevDeposit) / prevDeposit * 100;
-          const prevDays = (new Date(prevBal.recorded_at) - firstCfDate) / (1000 * 60 * 60 * 24);
-          if (prevDays >= 1) {
-            const prevAnnualReturn = (Math.pow(1 + prevReturnPct / 100, 365 / prevDays) - 1) * 100;
-            annualReturnDelta = annualReturn - prevAnnualReturn;
+        const latestDay = new Date(bals[bals.length - 1].recorded_at);
+        latestDay.setHours(0, 0, 0, 0);
+        let prevBal = null;
+        for (let i = bals.length - 2; i >= 0; i--) {
+          const d = new Date(bals[i].recorded_at);
+          d.setHours(0, 0, 0, 0);
+          if (d.getTime() !== latestDay.getTime()) {
+            prevBal = bals[i];
+            break;
+          }
+        }
+        if (prevBal) {
+          const prevCutoff = new Date(prevBal.recorded_at);
+          const prevCfs = cfs.filter(r => new Date(r.transacted_at) <= prevCutoff);
+          const prevDeposit    = prevCfs.filter(r => r.type === 'deposit').reduce((s, r) => s + r.amount, 0);
+          const prevWithdrawal = prevCfs.filter(r => r.type === 'withdrawal').reduce((s, r) => s + r.amount, 0);
+          if (prevDeposit > 0) {
+            const prevReturnPct = (prevBal.balance + prevWithdrawal - prevDeposit) / prevDeposit * 100;
+            const prevDays = (new Date(prevBal.recorded_at) - firstCfDate) / (1000 * 60 * 60 * 24);
+            if (prevDays >= 1) {
+              const prevAnnualReturn = (Math.pow(1 + prevReturnPct / 100, 365 / prevDays) - 1) * 100;
+              annualReturnDelta = annualReturn - prevAnnualReturn;
+            }
           }
         }
       }
