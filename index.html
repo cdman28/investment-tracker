@@ -1428,6 +1428,19 @@ $('btn-sync').addEventListener('click', async () => {
 /* =====================================================
    CALCULATIONS
 ===================================================== */
+// 특정 시점 기준으로 수익률 계산 (잔액 기록 테이블용)
+function calcReturnAtTime(brokerId, balance, pointInTime) {
+  const cutoff = new Date(pointInTime);
+  const cfs = state.data.cashflow_records.filter(r =>
+    r.broker_id === brokerId && new Date(r.transacted_at) <= cutoff
+  );
+  const totalDeposit = cfs.filter(r => r.type === 'deposit').reduce((s, r) => s + r.amount, 0);
+  const totalWithdrawal = cfs.filter(r => r.type === 'withdrawal').reduce((s, r) => s + r.amount, 0);
+  if (totalDeposit === 0) return null;
+  const pnl = balance + totalWithdrawal - totalDeposit;
+  return (pnl / totalDeposit) * 100;
+}
+
 function calcBroker(brokerId) {
   const cfs = state.data.cashflow_records.filter(r => r.broker_id === brokerId);
   const bals = state.data.balance_records.filter(r => r.broker_id === brokerId)
@@ -1836,10 +1849,7 @@ function renderTables() {
     tbodyB.innerHTML = '<tr class="empty-row"><td colspan="5">기록이 없습니다.</td></tr>';
   } else {
     bals.forEach(r => {
-      const broker = state.data.brokers.find(b => b.id === r.broker_id);
-      const c = calcBroker(r.broker_id);
-      // Return at this point: approximate — use current calc as proxy
-      const rPct = c.returnPct;
+      const rPct = calcReturnAtTime(r.broker_id, r.balance, r.recorded_at);
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td class="primary num">${formatDt(r.recorded_at)}</td>
