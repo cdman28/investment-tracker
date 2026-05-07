@@ -248,7 +248,7 @@
     }
     .kpi-aux-grid {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 12px;
       margin-bottom: 20px;
     }
@@ -863,9 +863,14 @@
     </div>
     <div class="kpi-aux-grid">
       <div class="kpi-card aux">
-        <div class="kpi-label">MDD</div>
-        <div class="kpi-value num" id="kpi-mdd-val">—</div>
-        <div class="kpi-sub">최대 낙폭</div>
+        <div class="kpi-label">연환산 수익률</div>
+        <div class="kpi-value num" id="kpi-annual-val">—</div>
+        <div class="kpi-sub">CAGR</div>
+      </div>
+      <div class="kpi-card aux">
+        <div class="kpi-label">전일대비 변화</div>
+        <div class="kpi-value num" id="kpi-day-val">—</div>
+        <div class="kpi-sub">전일 잔고 대비</div>
       </div>
       <div class="kpi-card aux">
         <div class="kpi-label" style="color:#3B82F6;">이번 주 변화</div>
@@ -1485,17 +1490,33 @@ function calcBroker(brokerId) {
   const pnl = latestBalance + totalWithdrawal - totalDeposit;
   const returnPct = totalDeposit > 0 ? (pnl / totalDeposit) * 100 : null;
 
-  // MDD
-  let mdd = null;
-  if (bals.length >= 2) {
-    let peak = bals[0].balance;
-    let maxDd = 0;
-    for (const b of bals) {
-      if (b.balance > peak) peak = b.balance;
-      const dd = peak > 0 ? (peak - b.balance) / peak * 100 : 0;
-      if (dd > maxDd) maxDd = dd;
+  // 연환산 수익률 (CAGR)
+  let annualReturn = null;
+  if (returnPct !== null && cfs.length > 0 && bals.length > 0) {
+    const firstCfDate = new Date(cfs.slice().sort((a, b) => new Date(a.date) - new Date(b.date))[0].date);
+    const lastBalDate = new Date(bals[bals.length - 1].recorded_at);
+    const days = (lastBalDate - firstCfDate) / (1000 * 60 * 60 * 24);
+    if (days >= 1) {
+      annualReturn = (Math.pow(1 + returnPct / 100, 365 / days) - 1) * 100;
     }
-    mdd = maxDd;
+  }
+
+  // 전일대비 변화
+  let dayChange = null;
+  if (bals.length >= 1) {
+    const latestDate = new Date(bals[bals.length - 1].recorded_at);
+    latestDate.setHours(0, 0, 0, 0);
+    const prevDate = new Date(latestDate);
+    prevDate.setDate(prevDate.getDate() - 1);
+    const prevBals = bals.filter(b => {
+      const d = new Date(b.recorded_at);
+      d.setHours(0, 0, 0, 0);
+      return d.getTime() === prevDate.getTime();
+    });
+    if (prevBals.length > 0) {
+      const prevBalance = prevBals[prevBals.length - 1].balance;
+      dayChange = latestBalance - prevBalance;
+    }
   }
 
   // Weekly / Monthly change
@@ -1509,7 +1530,7 @@ function calcBroker(brokerId) {
   const weekChange = weekBals.length >= 2 ? weekBals[weekBals.length-1].balance - weekBals[0].balance : (weekBals.length === 1 ? 0 : null);
   const monthChange = monthBals.length >= 2 ? monthBals[monthBals.length-1].balance - monthBals[0].balance : (monthBals.length === 1 ? 0 : null);
 
-  return { totalDeposit, totalWithdrawal, latestBalance, pnl, returnPct, mdd, weekChange, monthChange, bals };
+  return { totalDeposit, totalWithdrawal, latestBalance, pnl, returnPct, annualReturn, dayChange, weekChange, monthChange, bals };
 }
 
 function calcAll() {
@@ -1526,21 +1547,28 @@ function calcAll() {
   const pnl = totalBalance + totalWithdrawal - totalDeposit;
   const returnPct = totalDeposit > 0 ? (pnl / totalDeposit) * 100 : null;
 
-  // MDD across all balance records
-  const allBals = state.data.balance_records.slice()
-    .sort((a, b) => new Date(a.recorded_at) - new Date(b.recorded_at));
-
-  // Aggregate by date: sum all broker balances per snapshot
-  // Simple approach: compute per-broker MDD average
-  let mdd = null;
-  if (brokerCalcs.some(bc => bc.calc.mdd !== null)) {
-    const mdds = brokerCalcs.filter(bc => bc.calc.mdd !== null).map(bc => bc.calc.mdd);
-    mdd = mdds.length > 0 ? Math.max(...mdds) : null;
+  // 연환산 수익률 (전체: 가장 오래된 입금일 ~ 가장 최근 잔고 기준)
+  let annualReturn = null;
+  if (returnPct !== null) {
+    const allCfs = state.data.cash_flows.slice().sort((a, b) => new Date(a.date) - new Date(b.date));
+    const allBals2 = state.data.balance_records.slice().sort((a, b) => new Date(a.recorded_at) - new Date(b.recorded_at));
+    if (allCfs.length > 0 && allBals2.length > 0) {
+      const firstCfDate = new Date(allCfs[0].date);
+      const lastBalDate = new Date(allBals2[allBals2.length - 1].recorded_at);
+      const days = (lastBalDate - firstCfDate) / (1000 * 60 * 60 * 24);
+      if (days >= 1) {
+        annualReturn = (Math.pow(1 + returnPct / 100, 365 / days) - 1) * 100;
+      }
+    }
   }
 
-  const now = new Date();
-  const weekStart = new Date(now); weekStart.setDate(now.getDate() - now.getDay()); weekStart.setHours(0,0,0,0);
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  // 전일대비 변화: 각 브로커 dayChange 합산
+  let dayChange = null;
+  let anyDay = false;
+  for (const bc of brokerCalcs) {
+    if (bc.calc.dayChange !== null) { dayChange = (dayChange ?? 0) + bc.calc.dayChange; anyDay = true; }
+  }
+  if (!anyDay) dayChange = null;
 
   // Week/month change: sum of each broker's change
   let weekChange = null, monthChange = null;
@@ -1552,7 +1580,7 @@ function calcAll() {
   if (!anyWeek) weekChange = null;
   if (!anyMonth) monthChange = null;
 
-  return { totalDeposit, totalWithdrawal, totalBalance, pnl, returnPct, mdd, weekChange, monthChange, brokerCalcs };
+  return { totalDeposit, totalWithdrawal, totalBalance, pnl, returnPct, annualReturn, dayChange, weekChange, monthChange, brokerCalcs };
 }
 
 /* =====================================================
@@ -1561,19 +1589,20 @@ function calcAll() {
 function renderKPI() {
   if (state.activeTab === 'all') {
     const c = calcAll();
-    setKPI(c.totalDeposit, c.totalBalance, c.pnl, c.returnPct, c.mdd, c.weekChange, c.monthChange);
+    setKPI(c.totalDeposit, c.totalBalance, c.pnl, c.returnPct, c.annualReturn, c.dayChange, c.weekChange, c.monthChange);
   } else {
     const c = calcBroker(state.activeTab);
-    setKPI(c.totalDeposit, c.latestBalance, c.pnl, c.returnPct, c.mdd, c.weekChange, c.monthChange);
+    setKPI(c.totalDeposit, c.latestBalance, c.pnl, c.returnPct, c.annualReturn, c.dayChange, c.weekChange, c.monthChange);
   }
 }
 
-function setKPI(invested, balance, pnl, returnPct, mdd, weekChange, monthChange) {
+function setKPI(invested, balance, pnl, returnPct, annualReturn, dayChange, weekChange, monthChange) {
   const investedEl = $('kpi-invested-val');
   const balanceEl = $('kpi-balance-val');
   const pnlEl = $('kpi-pnl-val');
   const returnEl = $('kpi-return-val');
-  const mddEl = $('kpi-mdd-val');
+  const annualEl = $('kpi-annual-val');
+  const dayEl = $('kpi-day-val');
   const weekEl = $('kpi-week-val');
   const monthEl = $('kpi-month-val');
 
@@ -1586,8 +1615,11 @@ function setKPI(invested, balance, pnl, returnPct, mdd, weekChange, monthChange)
   returnEl.textContent = returnPct !== null ? formatPct(returnPct) : '—';
   if (returnPct !== null) applyColorClass(returnEl, returnPct);
 
-  mddEl.textContent = mdd !== null ? '-' + mdd.toFixed(2) + '%' : '—';
-  if (mdd !== null) mddEl.classList.add('negative');
+  annualEl.textContent = annualReturn !== null ? formatPct(annualReturn) : '—';
+  if (annualReturn !== null) applyColorClass(annualEl, annualReturn);
+
+  dayEl.textContent = dayChange !== null ? formatMoneySign(dayChange) : '—';
+  if (dayChange !== null) applyColorClass(dayEl, dayChange);
 
   weekEl.textContent = weekChange !== null ? formatMoneySign(weekChange) : '—';
   if (weekChange !== null) applyColorClass(weekEl, weekChange);
