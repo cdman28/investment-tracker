@@ -1,0 +1,2391 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Investment Tracker</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+  <style>
+    /* =====================================================
+       0. CSS VARIABLES (Design Tokens)
+    ===================================================== */
+    :root {
+      --bg-base: #FAF9F6;
+      --bg-surface: #FFFFFF;
+      --bg-surface-2: #F3F2EE;
+      --bg-overlay: rgba(0,0,0,0.45);
+      --border: #E4E2DC;
+      --border-strong: #C8C5BC;
+      --text-primary: #1A1916;
+      --text-secondary: #6B6860;
+      --text-muted: #9E9C97;
+      --accent: #0D9488;
+      --accent-hover: #0F766E;
+      --accent-light: #CCFBF1;
+      --color-success: #16A34A;
+      --color-success-light: #DCFCE7;
+      --color-error: #DC2626;
+      --color-error-light: #FEE2E2;
+      --color-warning: #CA8A04;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.07);
+      --shadow-md: 0 4px 12px rgba(0,0,0,0.10);
+      --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 16px;
+      --radius-xl: 20px;
+      --font-base: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      --transition: 0.18s ease;
+      --header-height: 56px;
+      --tab-height: 48px;
+    }
+    [data-theme="dark"] {
+      --bg-base: #14130F;
+      --bg-surface: #1E1D19;
+      --bg-surface-2: #262520;
+      --bg-overlay: rgba(0,0,0,0.65);
+      --border: #2E2D29;
+      --border-strong: #3E3D38;
+      --text-primary: #F0EFE9;
+      --text-secondary: #9E9C97;
+      --text-muted: #6B6860;
+      --accent: #14B8A6;
+      --accent-hover: #0D9488;
+      --accent-light: #134E4A;
+      --color-success: #22C55E;
+      --color-success-light: #14532D;
+      --color-error: #EF4444;
+      --color-error-light: #7F1D1D;
+    }
+
+    /* =====================================================
+       1. RESET & BASE
+    ===================================================== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 16px; scroll-behavior: smooth; }
+    body {
+      font-family: var(--font-base);
+      background: var(--bg-base);
+      color: var(--text-primary);
+      min-height: 100dvh;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    button { font-family: var(--font-base); cursor: pointer; border: none; background: none; }
+    input, select, textarea {
+      font-family: var(--font-base);
+      font-size: 0.95rem;
+      color: var(--text-primary);
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 8px 12px;
+      outline: none;
+      transition: border-color var(--transition);
+      width: 100%;
+    }
+    input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+    input::placeholder { color: var(--text-muted); }
+    .num { font-variant-numeric: tabular-nums lining-nums; }
+
+    /* =====================================================
+       2. LAYOUT
+    ===================================================== */
+    #app { display: flex; flex-direction: column; min-height: 100dvh; }
+
+    /* Header */
+    .header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      height: var(--header-height);
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      box-shadow: var(--shadow-sm);
+    }
+    .header-logo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+    .header-logo svg { color: var(--accent); }
+    .header-actions { display: flex; align-items: center; gap: 8px; }
+    .btn-icon {
+      width: 36px; height: 36px;
+      border-radius: var(--radius-sm);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-secondary);
+      transition: background var(--transition), color var(--transition);
+    }
+    .btn-icon:hover { background: var(--bg-surface-2); color: var(--text-primary); }
+    .btn-icon svg { width: 18px; height: 18px; }
+
+    /* Tab bar */
+    .tabbar {
+      position: sticky;
+      top: var(--header-height);
+      z-index: 90;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      overflow-x: auto;
+      scrollbar-width: none;
+      padding: 0 12px;
+      gap: 2px;
+      min-height: var(--tab-height);
+    }
+    .tabbar::-webkit-scrollbar { display: none; }
+    .tab-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 10px 14px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      border-radius: var(--radius-sm);
+      white-space: nowrap;
+      transition: background var(--transition), color var(--transition);
+      position: relative;
+    }
+    .tab-btn:hover { background: var(--bg-surface-2); color: var(--text-primary); }
+    .tab-btn.active { color: var(--text-primary); font-weight: 600; }
+    .tab-btn.active::after {
+      content: '';
+      position: absolute;
+      bottom: -1px;
+      left: 8px; right: 8px;
+      height: 2px;
+      border-radius: 2px;
+      background: var(--accent);
+    }
+    .tab-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .tab-add-btn {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 8px 12px;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      border-radius: var(--radius-sm);
+      white-space: nowrap;
+      transition: background var(--transition), color var(--transition);
+    }
+    .tab-add-btn:hover { background: var(--bg-surface-2); color: var(--accent); }
+
+    /* Main content */
+    .main { flex: 1; padding: 20px; max-width: 1200px; margin: 0 auto; width: 100%; }
+
+    /* =====================================================
+       3. CARD BASE
+    ===================================================== */
+    .card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      box-shadow: var(--shadow-sm);
+    }
+    .card-title {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 12px;
+    }
+    .section-title {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .section-title svg { width: 16px; height: 16px; }
+
+    /* =====================================================
+       4. KPI CARDS
+    ===================================================== */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .kpi-aux-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .kpi-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 16px;
+      box-shadow: var(--shadow-sm);
+    }
+    .kpi-label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 6px;
+    }
+    .kpi-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      line-height: 1.2;
+      transition: color var(--transition);
+    }
+    .kpi-sub {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+    .kpi-card.aux .kpi-value { font-size: 1.1rem; }
+    .positive { color: var(--color-success) !important; }
+    .negative { color: var(--color-error) !important; }
+    .neutral { color: var(--text-secondary) !important; }
+
+    /* =====================================================
+       5. CHART AREA
+    ===================================================== */
+    .chart-grid {
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    .chart-card { position: relative; }
+    .chart-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .period-btns {
+      display: flex;
+      gap: 4px;
+      background: var(--bg-surface-2);
+      padding: 3px;
+      border-radius: var(--radius-sm);
+    }
+    .period-btn {
+      padding: 4px 10px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      border-radius: 4px;
+      transition: background var(--transition), color var(--transition);
+    }
+    .period-btn:hover { color: var(--text-primary); }
+    .period-btn.active {
+      background: var(--bg-surface);
+      color: var(--text-primary);
+      box-shadow: var(--shadow-sm);
+    }
+    .chart-wrapper {
+      position: relative;
+      height: 240px;
+    }
+    .chart-wrapper canvas { width: 100% !important; }
+    .pie-wrapper {
+      position: relative;
+      height: 200px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .pie-legend {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 12px;
+    }
+    .pie-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+    }
+    .pie-legend-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .pie-legend-pct { margin-left: auto; font-weight: 600; color: var(--text-primary); }
+    .chart-empty {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: var(--text-muted);
+      font-size: 0.875rem;
+    }
+    .chart-empty svg { width: 32px; height: 32px; opacity: 0.4; }
+
+    /* =====================================================
+       6. FORMS
+    ===================================================== */
+    .form-section {
+      margin-bottom: 16px;
+    }
+    .form-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: flex-end;
+    }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      flex: 1;
+      min-width: 140px;
+    }
+    .form-group.fixed-100 { flex: 0 0 100px; }
+    .form-group.fixed-140 { flex: 0 0 140px; }
+    .form-label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+    .form-label.required::after { content: ' *'; color: var(--color-error); }
+    .radio-group {
+      display: flex;
+      gap: 6px;
+    }
+    .radio-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 14px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      font-size: 0.875rem;
+      cursor: pointer;
+      transition: all var(--transition);
+      color: var(--text-secondary);
+      background: var(--bg-surface);
+    }
+    .radio-label input { display: none; }
+    .radio-label.deposit-active { border-color: var(--color-success); background: var(--color-success-light); color: var(--color-success); font-weight: 600; }
+    .radio-label.withdrawal-active { border-color: var(--color-error); background: var(--color-error-light); color: var(--color-error); font-weight: 600; }
+
+    /* =====================================================
+       7. BUTTONS
+    ===================================================== */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 9px 18px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      border-radius: var(--radius-sm);
+      transition: all var(--transition);
+      white-space: nowrap;
+      cursor: pointer;
+    }
+    .btn svg { width: 15px; height: 15px; flex-shrink: 0; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-secondary {
+      background: var(--bg-surface-2);
+      color: var(--text-secondary);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { border-color: var(--border-strong); color: var(--text-primary); }
+    .btn-danger { background: var(--color-error-light); color: var(--color-error); }
+    .btn-danger:hover { background: var(--color-error); color: #fff; }
+    .btn-sm { padding: 6px 12px; font-size: 0.8rem; }
+    .btn-xs { padding: 4px 8px; font-size: 0.75rem; }
+    .btn-full { width: 100%; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-loading { position: relative; }
+    .btn-loading::after {
+      content: '';
+      display: inline-block;
+      width: 13px; height: 13px;
+      border: 2px solid rgba(255,255,255,0.4);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      margin-left: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* =====================================================
+       8. TABLE / RECORD LIST
+    ===================================================== */
+    .records-section { margin-bottom: 20px; }
+    .records-tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 12px;
+    }
+    .records-tab {
+      padding: 7px 16px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      border-radius: var(--radius-sm);
+      color: var(--text-secondary);
+      background: var(--bg-surface-2);
+      transition: all var(--transition);
+    }
+    .records-tab.active { background: var(--accent); color: #fff; }
+    .table-wrap { overflow-x: auto; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+    thead th {
+      text-align: left;
+      padding: 8px 10px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    tbody tr {
+      border-bottom: 1px solid var(--border);
+      transition: background var(--transition);
+    }
+    tbody tr:hover { background: var(--bg-surface-2); }
+    tbody td {
+      padding: 9px 10px;
+      color: var(--text-secondary);
+      vertical-align: middle;
+    }
+    tbody td.primary { color: var(--text-primary); font-weight: 500; }
+    .action-btns { display: flex; gap: 4px; }
+    .empty-row td {
+      text-align: center;
+      padding: 32px;
+      color: var(--text-muted);
+    }
+
+    /* =====================================================
+       9. DATA MANAGEMENT
+    ===================================================== */
+    .data-mgmt {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      padding: 16px 20px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      margin-bottom: 32px;
+    }
+    .data-mgmt-title {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-right: 4px;
+    }
+    .data-mgmt-spacer { flex: 1; }
+
+    /* =====================================================
+       10. MODAL
+    ===================================================== */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: var(--bg-overlay);
+      z-index: 300;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      backdrop-filter: blur(3px);
+    }
+    .modal-overlay.hidden { display: none; }
+    .modal {
+      background: var(--bg-surface);
+      border-radius: var(--radius-xl);
+      padding: 28px;
+      width: 100%;
+      max-width: 460px;
+      box-shadow: var(--shadow-lg);
+      animation: fadeUp 0.22s ease;
+    }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .modal-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin-bottom: 20px;
+      color: var(--text-primary);
+    }
+    .modal-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      margin-top: 20px;
+    }
+
+    /* =====================================================
+       11. SETUP SCREEN
+    ===================================================== */
+    #setup-screen {
+      position: fixed;
+      inset: 0;
+      background: var(--bg-base);
+      z-index: 500;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    #setup-screen.hidden { display: none; }
+    .setup-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-xl);
+      padding: 36px 32px;
+      width: 100%;
+      max-width: 480px;
+      box-shadow: var(--shadow-lg);
+    }
+    .setup-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .setup-logo svg { color: var(--accent); width: 28px; height: 28px; }
+    .setup-logo h1 { font-size: 1.4rem; font-weight: 800; }
+    .setup-subtitle {
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+      margin-bottom: 28px;
+      line-height: 1.5;
+    }
+    .setup-step {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 12px;
+      font-size: 0.82rem;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+    .setup-step-num {
+      background: var(--accent-light);
+      color: var(--accent);
+      font-weight: 700;
+      font-size: 0.72rem;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+    .status-msg {
+      font-size: 0.82rem;
+      padding: 10px 14px;
+      border-radius: var(--radius-sm);
+      margin-top: 12px;
+      display: none;
+    }
+    .status-msg.success { background: var(--color-success-light); color: var(--color-success); display: block; }
+    .status-msg.error { background: var(--color-error-light); color: var(--color-error); display: block; }
+    .status-msg.info { background: var(--accent-light); color: var(--accent); display: block; }
+
+    /* =====================================================
+       12. TOAST
+    ===================================================== */
+    #toast-container {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      pointer-events: none;
+    }
+    .toast {
+      background: var(--text-primary);
+      color: var(--bg-surface);
+      padding: 12px 18px;
+      border-radius: var(--radius-md);
+      font-size: 0.85rem;
+      font-weight: 500;
+      box-shadow: var(--shadow-md);
+      animation: toastIn 0.2s ease;
+      pointer-events: none;
+      max-width: 300px;
+    }
+    .toast.error { background: var(--color-error); }
+    .toast.success { background: var(--color-success); }
+    @keyframes toastIn {
+      from { opacity: 0; transform: translateX(20px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+
+    /* =====================================================
+       13. COLOR SWATCHES
+    ===================================================== */
+    .color-swatches {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 6px;
+    }
+    .color-swatch {
+      width: 26px; height: 26px;
+      border-radius: 50%;
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: transform var(--transition), border-color var(--transition);
+    }
+    .color-swatch:hover { transform: scale(1.15); }
+    .color-swatch.selected { border-color: var(--text-primary); }
+    input[type="color"] {
+      width: 32px; height: 28px;
+      padding: 2px;
+      cursor: pointer;
+      border-radius: var(--radius-sm);
+      flex-shrink: 0;
+    }
+
+    /* =====================================================
+       14. RESPONSIVE
+    ===================================================== */
+    @media (max-width: 767px) {
+      .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+      .kpi-aux-grid { grid-template-columns: repeat(2, 1fr); }
+      .chart-grid { grid-template-columns: 1fr; }
+      .main { padding: 14px; }
+      .form-row { flex-direction: column; }
+      .form-group, .form-group.fixed-100, .form-group.fixed-140 { width: 100%; flex: none; min-width: 0; }
+      .data-mgmt { gap: 6px; }
+      .modal { padding: 20px; }
+      table { font-size: 0.78rem; }
+    }
+    @media (min-width: 768px) and (max-width: 1023px) {
+      .kpi-grid { grid-template-columns: repeat(4, 1fr); }
+      .chart-grid { grid-template-columns: 1fr 280px; }
+    }
+    @media (min-width: 1024px) {
+      .chart-grid { grid-template-columns: 1fr 300px; }
+    }
+
+    /* =====================================================
+       15. MISC
+    ===================================================== */
+    .divider { height: 1px; background: var(--border); margin: 16px 0; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-size: 0.72rem;
+      font-weight: 700;
+    }
+    .badge-deposit { background: var(--color-success-light); color: var(--color-success); }
+    .badge-withdrawal { background: var(--color-error-light); color: var(--color-error); }
+    .hidden { display: none !important; }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+  </style>
+</head>
+<body>
+
+<!-- ===================================================
+     SETUP SCREEN
+=================================================== -->
+<div id="setup-screen">
+  <div class="setup-card">
+    <div class="setup-logo">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18 9 11.25l4.306 4.306a11.95 11.95 0 0 1 5.814-5.518l2.74-1.22m0 0-5.94-2.281m5.94 2.28-2.28 5.941"/>
+      </svg>
+      <h1>Investment Tracker</h1>
+    </div>
+    <p class="setup-subtitle">
+      GitHub Gist를 저장소로 사용합니다.<br>
+      Personal Access Token(PAT)과 Gist ID를 입력하면 바로 시작할 수 있습니다.
+    </p>
+
+    <div style="background:var(--bg-surface-2);border-radius:var(--radius-md);padding:14px 16px;margin-bottom:20px;">
+      <div style="font-size:0.78rem;font-weight:700;color:var(--text-muted);margin-bottom:8px;">처음이신가요? 간단 설정 안내</div>
+      <div class="setup-step">
+        <span class="setup-step-num">1</span>
+        <span><a href="https://gist.github.com/" target="_blank" rel="noopener">gist.github.com</a>에서 새 Gist 생성 → 파일명: <code>investment-tracker-data.json</code>, 내용: <code>{}</code> → <b>Create secret gist</b></span>
+      </div>
+      <div class="setup-step">
+        <span class="setup-step-num">2</span>
+        <span>생성된 Gist URL에서 ID 복사 <span style="color:var(--text-muted)">(예: gist.github.com/user/<b>abc123...</b>)</span></span>
+      </div>
+      <div class="setup-step">
+        <span class="setup-step-num">3</span>
+        <span>GitHub Settings → Developer Settings → <a href="https://github.com/settings/tokens" target="_blank" rel="noopener">Personal Access Tokens</a> → <b>gist</b> 스코프 체크 후 토큰 발급</span>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div class="form-group">
+        <label class="form-label required" for="setup-pat">GitHub Personal Access Token (PAT)</label>
+        <input type="password" id="setup-pat" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" autocomplete="off" />
+      </div>
+      <div class="form-group">
+        <label class="form-label required" for="setup-gist-id">Gist ID</label>
+        <input type="text" id="setup-gist-id" placeholder="32자리 영숫자" autocomplete="off" />
+      </div>
+    </div>
+
+    <div id="setup-status" class="status-msg"></div>
+
+    <div style="display:flex;gap:8px;margin-top:16px;">
+      <button class="btn btn-secondary" id="btn-setup-verify" style="flex:1;">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+        연결 확인
+      </button>
+      <button class="btn btn-primary" id="btn-setup-enter" style="flex:1;" disabled>
+        시작하기
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================================================
+     MAIN APP
+=================================================== -->
+<div id="app" class="hidden">
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-logo">
+      <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18 9 11.25l4.306 4.306a11.95 11.95 0 0 1 5.814-5.518l2.74-1.22m0 0-5.94-2.281m5.94 2.28-2.28 5.941"/>
+      </svg>
+      Investment Tracker
+    </div>
+    <div class="header-actions">
+      <button class="btn-icon" id="btn-sync" title="Gist 동기화" aria-label="동기화">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>
+      </button>
+      <button class="btn-icon" id="btn-theme-toggle" title="다크/라이트 모드" aria-label="테마 전환">
+        <svg id="icon-moon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998Z"/></svg>
+        <svg id="icon-sun" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="hidden"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z"/></svg>
+      </button>
+      <button class="btn-icon" id="btn-logout" title="로그아웃 (PAT 초기화)" aria-label="로그아웃">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- Tab bar -->
+  <nav class="tabbar" id="tabbar" role="tablist"></nav>
+
+  <!-- Main content -->
+  <main class="main" id="main-content">
+
+    <!-- KPI -->
+    <div class="kpi-grid" id="kpi-grid">
+      <div class="kpi-card" id="kpi-invested">
+        <div class="kpi-label">총 투자금액</div>
+        <div class="kpi-value num" id="kpi-invested-val">—</div>
+      </div>
+      <div class="kpi-card" id="kpi-balance">
+        <div class="kpi-label">현재 평가금액</div>
+        <div class="kpi-value num" id="kpi-balance-val">—</div>
+      </div>
+      <div class="kpi-card" id="kpi-pnl">
+        <div class="kpi-label">총 손익금액</div>
+        <div class="kpi-value num" id="kpi-pnl-val">—</div>
+      </div>
+      <div class="kpi-card" id="kpi-return">
+        <div class="kpi-label">수익률</div>
+        <div class="kpi-value num" id="kpi-return-val">—</div>
+      </div>
+    </div>
+    <div class="kpi-aux-grid">
+      <div class="kpi-card aux">
+        <div class="kpi-label">MDD</div>
+        <div class="kpi-value num" id="kpi-mdd-val">—</div>
+        <div class="kpi-sub">최대 낙폭</div>
+      </div>
+      <div class="kpi-card aux">
+        <div class="kpi-label">이번 주 변화</div>
+        <div class="kpi-value num" id="kpi-week-val">—</div>
+        <div class="kpi-sub">이번 주 첫 기록 대비</div>
+      </div>
+      <div class="kpi-card aux">
+        <div class="kpi-label">이번 달 변화</div>
+        <div class="kpi-value num" id="kpi-month-val">—</div>
+        <div class="kpi-sub">이번 달 첫 기록 대비</div>
+      </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="chart-grid" id="chart-grid">
+      <!-- Line chart -->
+      <div class="card chart-card">
+        <div class="chart-header">
+          <div class="card-title" style="margin-bottom:0;">자산 추이</div>
+          <div class="period-btns" id="period-btns">
+            <button class="period-btn" data-period="1M">1M</button>
+            <button class="period-btn" data-period="3M">3M</button>
+            <button class="period-btn" data-period="6M">6M</button>
+            <button class="period-btn" data-period="1Y">1Y</button>
+            <button class="period-btn active" data-period="ALL">전체</button>
+          </div>
+        </div>
+        <div class="chart-wrapper">
+          <canvas id="line-chart"></canvas>
+          <div id="line-chart-empty" class="chart-empty hidden">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18 9 11.25l4.306 4.306a11.95 11.95 0 0 1 5.814-5.518l2.74-1.22m0 0-5.94-2.281m5.94 2.28-2.28 5.941"/></svg>
+            <span>잔액 기록을 추가하면 차트가 표시됩니다.</span>
+          </div>
+        </div>
+      </div>
+      <!-- Pie chart (전체 탭에서만) -->
+      <div class="card chart-card" id="pie-chart-card">
+        <div class="card-title">포트폴리오 비중</div>
+        <div class="pie-wrapper">
+          <canvas id="pie-chart"></canvas>
+          <div id="pie-chart-empty" class="chart-empty hidden">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6a7.5 7.5 0 1 0 7.5 7.5h-7.5V6Z"/><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 10.5H21A7.5 7.5 0 0 0 13.5 3v7.5Z"/></svg>
+            <span>증권사를 추가하면 비중이 표시됩니다.</span>
+          </div>
+        </div>
+        <div class="pie-legend" id="pie-legend"></div>
+      </div>
+    </div>
+
+    <!-- Balance input -->
+    <div class="card form-section" style="margin-bottom:16px;" id="balance-input-section">
+      <div class="section-title">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+        잔액 기록 입력
+        <span id="balance-input-broker-name" style="color:var(--text-muted);font-weight:400;"></span>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label required" for="inp-balance">현재 평가금액 (원)</label>
+          <input type="text" id="inp-balance" placeholder="예: 1,500,000" inputmode="numeric" />
+        </div>
+        <div class="form-group fixed-140">
+          <label class="form-label" for="inp-balance-date">기록 날짜/시간</label>
+          <input type="datetime-local" id="inp-balance-date" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="inp-balance-memo">메모 (선택)</label>
+          <input type="text" id="inp-balance-memo" placeholder="예: 5월 첫째 주" />
+        </div>
+        <div class="form-group" style="flex:0 0 auto;min-width:0;">
+          <label class="form-label">&nbsp;</label>
+          <button class="btn btn-primary" id="btn-save-balance">저장</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cashflow input -->
+    <div class="card form-section" style="margin-bottom:20px;" id="cashflow-input-section">
+      <div class="section-title">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5 7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5"/></svg>
+        입출금 기록 입력
+        <span id="cashflow-input-broker-name" style="color:var(--text-muted);font-weight:400;"></span>
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="flex:0 0 auto;min-width:0;">
+          <label class="form-label">구분</label>
+          <div class="radio-group">
+            <label class="radio-label" id="label-deposit">
+              <input type="radio" name="cf-type" value="deposit" checked /> 입금
+            </label>
+            <label class="radio-label" id="label-withdrawal">
+              <input type="radio" name="cf-type" value="withdrawal" /> 출금
+            </label>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label required" for="inp-cf-amount">금액 (원)</label>
+          <input type="text" id="inp-cf-amount" placeholder="예: 500,000" inputmode="numeric" />
+        </div>
+        <div class="form-group fixed-140">
+          <label class="form-label" for="inp-cf-date">날짜/시간</label>
+          <input type="datetime-local" id="inp-cf-date" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="inp-cf-memo">메모 (선택)</label>
+          <input type="text" id="inp-cf-memo" placeholder="예: 월급날 추가 입금" />
+        </div>
+        <div class="form-group" style="flex:0 0 auto;min-width:0;">
+          <label class="form-label">&nbsp;</label>
+          <button class="btn btn-primary" id="btn-save-cashflow">저장</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Records list -->
+    <div class="records-section card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+        <div class="records-tabs">
+          <button class="records-tab active" id="rtab-balance">잔액 기록</button>
+          <button class="records-tab" id="rtab-cashflow">입출금 기록</button>
+        </div>
+      </div>
+      <div id="records-balance-panel">
+        <div class="table-wrap">
+          <table id="table-balance">
+            <thead>
+              <tr>
+                <th>날짜/시간</th>
+                <th>평가금액</th>
+                <th>수익률</th>
+                <th>메모</th>
+                <th style="width:72px;"></th>
+              </tr>
+            </thead>
+            <tbody id="tbody-balance"></tbody>
+          </table>
+        </div>
+      </div>
+      <div id="records-cashflow-panel" class="hidden">
+        <div class="table-wrap">
+          <table id="table-cashflow">
+            <thead>
+              <tr>
+                <th>날짜/시간</th>
+                <th>구분</th>
+                <th>금액</th>
+                <th>메모</th>
+                <th style="width:72px;"></th>
+              </tr>
+            </thead>
+            <tbody id="tbody-cashflow"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Data management -->
+    <div class="data-mgmt" style="margin-top:16px;">
+      <span class="data-mgmt-title">데이터 관리</span>
+      <button class="btn btn-secondary btn-sm" id="btn-csv-export">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
+        CSV 내보내기
+      </button>
+      <button class="btn btn-secondary btn-sm" id="btn-json-backup">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 2.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125m16.5 2.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125"/></svg>
+        JSON 백업
+      </button>
+      <button class="btn btn-secondary btn-sm" id="btn-json-restore">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"/></svg>
+        JSON 복원
+      </button>
+      <input type="file" id="file-restore" accept=".json" class="hidden" aria-label="JSON 복원 파일 선택" />
+    </div>
+
+  </main>
+</div>
+
+<!-- ===================================================
+     MODALS
+=================================================== -->
+<!-- Broker modal -->
+<div class="modal-overlay hidden" id="modal-broker">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-broker-title">
+    <div class="modal-title" id="modal-broker-title">증권사 추가</div>
+    <input type="hidden" id="broker-edit-id" />
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div class="form-group">
+        <label class="form-label required" for="inp-broker-name">증권사명</label>
+        <input type="text" id="inp-broker-name" placeholder="예: 토스증권" maxlength="30" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">대표 색상</label>
+        <div class="color-swatches" id="broker-color-swatches"></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+          <label for="inp-broker-color" style="font-size:0.75rem;color:var(--text-secondary);">직접 선택:</label>
+          <input type="color" id="inp-broker-color" value="#0D9488" style="width:40px;height:32px;padding:2px;" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label required" for="inp-broker-target">목표 수익률 (%)</label>
+        <input type="number" id="inp-broker-target" placeholder="예: 15" min="0" max="1000" step="0.1" />
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="btn-broker-cancel">취소</button>
+      <button class="btn btn-primary" id="btn-broker-save">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm delete modal -->
+<div class="modal-overlay hidden" id="modal-confirm">
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-title" id="modal-confirm-title">삭제 확인</div>
+    <p id="modal-confirm-body" style="font-size:0.9rem;color:var(--text-secondary);line-height:1.6;"></p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="btn-confirm-cancel">취소</button>
+      <button class="btn btn-danger" id="btn-confirm-ok">삭제</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit balance modal -->
+<div class="modal-overlay hidden" id="modal-edit-balance">
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-title">잔액 기록 수정</div>
+    <input type="hidden" id="edit-balance-id" />
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div class="form-group">
+        <label class="form-label required">평가금액 (원)</label>
+        <input type="text" id="edit-balance-amount" inputmode="numeric" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">기록 날짜/시간</label>
+        <input type="datetime-local" id="edit-balance-date" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">메모</label>
+        <input type="text" id="edit-balance-memo" />
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="btn-edit-balance-cancel">취소</button>
+      <button class="btn btn-primary" id="btn-edit-balance-save">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit cashflow modal -->
+<div class="modal-overlay hidden" id="modal-edit-cashflow">
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-title">입출금 기록 수정</div>
+    <input type="hidden" id="edit-cf-id" />
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div class="form-group">
+        <label class="form-label">구분</label>
+        <div class="radio-group">
+          <label class="radio-label" id="edit-label-deposit">
+            <input type="radio" name="edit-cf-type" value="deposit" /> 입금
+          </label>
+          <label class="radio-label" id="edit-label-withdrawal">
+            <input type="radio" name="edit-cf-type" value="withdrawal" /> 출금
+          </label>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label required">금액 (원)</label>
+        <input type="text" id="edit-cf-amount" inputmode="numeric" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">날짜/시간</label>
+        <input type="datetime-local" id="edit-cf-date" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">메모</label>
+        <input type="text" id="edit-cf-memo" />
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="btn-edit-cf-cancel">취소</button>
+      <button class="btn btn-primary" id="btn-edit-cf-save">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- JSON restore confirm -->
+<div class="modal-overlay hidden" id="modal-restore-confirm">
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="modal-title">⚠️ JSON 복원</div>
+    <p style="font-size:0.9rem;color:var(--text-secondary);line-height:1.6;">기존 데이터가 모두 덮어씌워집니다. 이 작업은 되돌릴 수 없습니다.<br>계속하시겠습니까?</p>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="btn-restore-cancel">취소</button>
+      <button class="btn btn-danger" id="btn-restore-ok">복원 진행</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div id="toast-container" aria-live="polite"></div>
+
+<!-- ===================================================
+     JAVASCRIPT
+=================================================== -->
+<script>
+'use strict';
+
+/* =====================================================
+   CONSTANTS
+===================================================== */
+const GIST_FILE = 'investment-tracker-data.json';
+const SESSION_KEY_PAT = 'inv_tracker_pat';
+const SESSION_KEY_GIST = 'inv_tracker_gist_id';
+const SESSION_KEY_THEME = 'inv_tracker_theme';
+const BROKER_COLORS = ['#0D9488','#3B82F6','#F59E0B','#EF4444','#8B5CF6','#EC4899','#10B981'];
+
+/* =====================================================
+   STATE
+===================================================== */
+const state = {
+  pat: '',
+  gistId: '',
+  data: { version: '1.0', last_updated: '', brokers: [], balance_records: [], cashflow_records: [] },
+  activeTab: 'all',       // 'all' | broker id
+  activeRecordTab: 'balance', // 'balance' | 'cashflow'
+  activePeriod: 'ALL',
+  lineChart: null,
+  pieChart: null,
+  confirmCallback: null,
+  restorePendingData: null,
+};
+
+/* =====================================================
+   UTILS
+===================================================== */
+const $ = id => document.getElementById(id);
+const uuid = () => crypto.randomUUID();
+
+function formatMoney(n) {
+  if (n === null || n === undefined || isNaN(n)) return '—';
+  return Math.round(n).toLocaleString('ko-KR') + '원';
+}
+function formatMoneySign(n) {
+  if (n === null || n === undefined || isNaN(n)) return '—';
+  const abs = Math.abs(Math.round(n)).toLocaleString('ko-KR');
+  if (n > 0) return '+' + abs + '원';
+  if (n < 0) return '-' + abs + '원';
+  return abs + '원';
+}
+function formatPct(n) {
+  if (n === null || n === undefined || isNaN(n)) return '—';
+  const sign = n >= 0 ? '+' : '';
+  return sign + n.toFixed(2) + '%';
+}
+function formatDt(isoStr) {
+  if (!isoStr) return '—';
+  const d = new Date(isoStr);
+  return d.toLocaleDateString('ko-KR', { year:'numeric', month:'2-digit', day:'2-digit' })
+    + ' ' + d.toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' });
+}
+function toLocalDatetimeInput(isoStr) {
+  // Convert ISO to local datetime-local value
+  const d = isoStr ? new Date(isoStr) : new Date();
+  const pad = v => String(v).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function datetimeLocalToISO(val) {
+  // datetime-local → ISO string in local time
+  return new Date(val).toISOString();
+}
+function parseAmount(str) {
+  const n = parseInt(String(str).replace(/[^0-9]/g, ''), 10);
+  return isNaN(n) ? NaN : n;
+}
+function formatInputAmount(input) {
+  const raw = input.value.replace(/[^0-9]/g, '');
+  if (!raw) { input.value = ''; return; }
+  input.value = parseInt(raw, 10).toLocaleString('ko-KR');
+}
+function applyColorClass(el, value) {
+  el.classList.remove('positive', 'negative', 'neutral');
+  if (value > 0) el.classList.add('positive');
+  else if (value < 0) el.classList.add('negative');
+  else el.classList.add('neutral');
+}
+
+function toast(msg, type = '') {
+  const c = $('toast-container');
+  const el = document.createElement('div');
+  el.className = 'toast' + (type ? ' ' + type : '');
+  el.textContent = msg;
+  c.appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+/* =====================================================
+   GITHUB GIST API
+===================================================== */
+async function gistGet() {
+  const res = await fetch(`https://api.github.com/gists/${state.gistId}`, {
+    headers: {
+      'Authorization': `Bearer ${state.pat}`,
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    }
+  });
+  if (!res.ok) throw new Error(`Gist 읽기 실패 (${res.status})`);
+  const json = await res.json();
+  const file = json.files?.[GIST_FILE];
+  if (!file) {
+    // 파일 없음 → 빈 데이터 초기화
+    return null;
+  }
+  try {
+    return JSON.parse(file.content);
+  } catch {
+    return null;
+  }
+}
+
+async function gistPatch(data) {
+  const body = JSON.stringify({
+    files: {
+      [GIST_FILE]: { content: JSON.stringify(data, null, 2) }
+    }
+  });
+  const res = await fetch(`https://api.github.com/gists/${state.gistId}`, {
+    method: 'PATCH',
+    headers: {
+      'Authorization': `Bearer ${state.pat}`,
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'Content-Type': 'application/json',
+    },
+    body
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Gist 저장 실패 (${res.status}): ${errText}`);
+  }
+  return res.json();
+}
+
+async function saveData(btnEl) {
+  if (btnEl) {
+    btnEl.disabled = true;
+    btnEl.classList.add('btn-loading');
+  }
+  state.data.last_updated = new Date().toISOString();
+  try {
+    await gistPatch(state.data);
+  } catch (err) {
+    toast('저장 실패: ' + err.message, 'error');
+    throw err;
+  } finally {
+    if (btnEl) {
+      btnEl.disabled = false;
+      btnEl.classList.remove('btn-loading');
+    }
+  }
+}
+
+/* =====================================================
+   SETUP SCREEN
+===================================================== */
+function showSetup() {
+  $('setup-screen').classList.remove('hidden');
+  $('app').classList.add('hidden');
+}
+function hideSetup() {
+  $('setup-screen').classList.add('hidden');
+  $('app').classList.remove('hidden');
+}
+
+$('btn-setup-verify').addEventListener('click', async () => {
+  const pat = $('setup-pat').value.trim();
+  const gistId = $('setup-gist-id').value.trim();
+  const statusEl = $('setup-status');
+
+  if (!pat || !gistId) {
+    statusEl.className = 'status-msg error';
+    statusEl.textContent = 'PAT와 Gist ID를 모두 입력해주세요.';
+    return;
+  }
+
+  const btn = $('btn-setup-verify');
+  btn.disabled = true;
+  btn.classList.add('btn-loading');
+  statusEl.className = 'status-msg info';
+  statusEl.textContent = '연결 확인 중...';
+
+  try {
+    const res = await fetch(`https://api.github.com/gists/${gistId}`, {
+      headers: {
+        'Authorization': `Bearer ${pat}`,
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      }
+    });
+    if (!res.ok) throw new Error(`응답 코드 ${res.status}`);
+    statusEl.className = 'status-msg success';
+    statusEl.textContent = '✅ 연결 성공! 시작하기 버튼을 눌러주세요.';
+    $('btn-setup-enter').disabled = false;
+  } catch (err) {
+    statusEl.className = 'status-msg error';
+    statusEl.textContent = `❌ 연결 실패: ${err.message} — PAT 또는 Gist ID를 확인해주세요.`;
+    $('btn-setup-enter').disabled = true;
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove('btn-loading');
+  }
+});
+
+$('btn-setup-enter').addEventListener('click', async () => {
+  const pat = $('setup-pat').value.trim();
+  const gistId = $('setup-gist-id').value.trim();
+
+  state.pat = pat;
+  state.gistId = gistId;
+  sessionStorage.setItem(SESSION_KEY_PAT, pat);
+  sessionStorage.setItem(SESSION_KEY_GIST, gistId);
+
+  try {
+    const loaded = await gistGet();
+    if (loaded && loaded.brokers) {
+      state.data = loaded;
+    } else {
+      // init empty data
+      state.data = { version: '1.0', last_updated: new Date().toISOString(), brokers: [], balance_records: [], cashflow_records: [] };
+      await gistPatch(state.data);
+    }
+    hideSetup();
+    renderAll();
+  } catch (err) {
+    toast('데이터 로드 실패: ' + err.message, 'error');
+  }
+});
+
+/* =====================================================
+   THEME
+===================================================== */
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  $('icon-moon').classList.toggle('hidden', theme === 'dark');
+  $('icon-sun').classList.toggle('hidden', theme !== 'dark');
+  sessionStorage.setItem(SESSION_KEY_THEME, theme);
+}
+
+$('btn-theme-toggle').addEventListener('click', () => {
+  const cur = document.documentElement.getAttribute('data-theme');
+  applyTheme(cur === 'dark' ? 'light' : 'dark');
+});
+
+// Logout
+$('btn-logout').addEventListener('click', () => {
+  sessionStorage.removeItem(SESSION_KEY_PAT);
+  sessionStorage.removeItem(SESSION_KEY_GIST);
+  state.pat = '';
+  state.gistId = '';
+  showSetup();
+  $('setup-pat').value = '';
+  $('setup-gist-id').value = '';
+  $('setup-status').className = 'status-msg';
+  $('btn-setup-enter').disabled = true;
+});
+
+// Sync button
+$('btn-sync').addEventListener('click', async () => {
+  const btn = $('btn-sync');
+  btn.disabled = true;
+  try {
+    const loaded = await gistGet();
+    if (loaded && loaded.brokers) state.data = loaded;
+    renderAll();
+    toast('동기화 완료!', 'success');
+  } catch (err) {
+    toast('동기화 실패: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+/* =====================================================
+   CALCULATIONS
+===================================================== */
+function calcBroker(brokerId) {
+  const cfs = state.data.cashflow_records.filter(r => r.broker_id === brokerId);
+  const bals = state.data.balance_records.filter(r => r.broker_id === brokerId)
+    .sort((a, b) => new Date(a.recorded_at) - new Date(b.recorded_at));
+
+  const totalDeposit = cfs.filter(r => r.type === 'deposit').reduce((s, r) => s + r.amount, 0);
+  const totalWithdrawal = cfs.filter(r => r.type === 'withdrawal').reduce((s, r) => s + r.amount, 0);
+  const latestBalance = bals.length > 0 ? bals[bals.length - 1].balance : 0;
+
+  const pnl = latestBalance + totalWithdrawal - totalDeposit;
+  const returnPct = totalDeposit > 0 ? (pnl / totalDeposit) * 100 : null;
+
+  // MDD
+  let mdd = null;
+  if (bals.length >= 2) {
+    let peak = bals[0].balance;
+    let maxDd = 0;
+    for (const b of bals) {
+      if (b.balance > peak) peak = b.balance;
+      const dd = peak > 0 ? (peak - b.balance) / peak * 100 : 0;
+      if (dd > maxDd) maxDd = dd;
+    }
+    mdd = maxDd;
+  }
+
+  // Weekly / Monthly change
+  const now = new Date();
+  const weekStart = new Date(now); weekStart.setDate(now.getDate() - now.getDay()); weekStart.setHours(0,0,0,0);
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  const weekBals = bals.filter(b => new Date(b.recorded_at) >= weekStart);
+  const monthBals = bals.filter(b => new Date(b.recorded_at) >= monthStart);
+
+  const weekChange = weekBals.length >= 2 ? weekBals[weekBals.length-1].balance - weekBals[0].balance : (weekBals.length === 1 ? 0 : null);
+  const monthChange = monthBals.length >= 2 ? monthBals[monthBals.length-1].balance - monthBals[0].balance : (monthBals.length === 1 ? 0 : null);
+
+  return { totalDeposit, totalWithdrawal, latestBalance, pnl, returnPct, mdd, weekChange, monthChange, bals };
+}
+
+function calcAll() {
+  const brokers = state.data.brokers;
+  let totalDeposit = 0, totalWithdrawal = 0, totalBalance = 0;
+  const brokerCalcs = brokers.map(b => {
+    const c = calcBroker(b.id);
+    totalDeposit += c.totalDeposit;
+    totalWithdrawal += c.totalWithdrawal;
+    totalBalance += c.latestBalance;
+    return { broker: b, calc: c };
+  });
+
+  const pnl = totalBalance + totalWithdrawal - totalDeposit;
+  const returnPct = totalDeposit > 0 ? (pnl / totalDeposit) * 100 : null;
+
+  // MDD across all balance records
+  const allBals = state.data.balance_records.slice()
+    .sort((a, b) => new Date(a.recorded_at) - new Date(b.recorded_at));
+
+  // Aggregate by date: sum all broker balances per snapshot
+  // Simple approach: compute per-broker MDD average
+  let mdd = null;
+  if (brokerCalcs.some(bc => bc.calc.mdd !== null)) {
+    const mdds = brokerCalcs.filter(bc => bc.calc.mdd !== null).map(bc => bc.calc.mdd);
+    mdd = mdds.length > 0 ? Math.max(...mdds) : null;
+  }
+
+  const now = new Date();
+  const weekStart = new Date(now); weekStart.setDate(now.getDate() - now.getDay()); weekStart.setHours(0,0,0,0);
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  // Week/month change: sum of each broker's change
+  let weekChange = null, monthChange = null;
+  let anyWeek = false, anyMonth = false;
+  for (const bc of brokerCalcs) {
+    if (bc.calc.weekChange !== null) { weekChange = (weekChange ?? 0) + bc.calc.weekChange; anyWeek = true; }
+    if (bc.calc.monthChange !== null) { monthChange = (monthChange ?? 0) + bc.calc.monthChange; anyMonth = true; }
+  }
+  if (!anyWeek) weekChange = null;
+  if (!anyMonth) monthChange = null;
+
+  return { totalDeposit, totalWithdrawal, totalBalance, pnl, returnPct, mdd, weekChange, monthChange, brokerCalcs };
+}
+
+/* =====================================================
+   RENDER — KPI
+===================================================== */
+function renderKPI() {
+  if (state.activeTab === 'all') {
+    const c = calcAll();
+    setKPI(c.totalDeposit, c.totalBalance, c.pnl, c.returnPct, c.mdd, c.weekChange, c.monthChange);
+  } else {
+    const c = calcBroker(state.activeTab);
+    setKPI(c.totalDeposit, c.latestBalance, c.pnl, c.returnPct, c.mdd, c.weekChange, c.monthChange);
+  }
+}
+
+function setKPI(invested, balance, pnl, returnPct, mdd, weekChange, monthChange) {
+  const investedEl = $('kpi-invested-val');
+  const balanceEl = $('kpi-balance-val');
+  const pnlEl = $('kpi-pnl-val');
+  const returnEl = $('kpi-return-val');
+  const mddEl = $('kpi-mdd-val');
+  const weekEl = $('kpi-week-val');
+  const monthEl = $('kpi-month-val');
+
+  investedEl.textContent = formatMoney(invested);
+  balanceEl.textContent = formatMoney(balance);
+
+  pnlEl.textContent = formatMoneySign(pnl);
+  applyColorClass(pnlEl, pnl);
+
+  returnEl.textContent = returnPct !== null ? formatPct(returnPct) : '—';
+  if (returnPct !== null) applyColorClass(returnEl, returnPct);
+
+  mddEl.textContent = mdd !== null ? '-' + mdd.toFixed(2) + '%' : '—';
+  if (mdd !== null) mddEl.classList.add('negative');
+
+  weekEl.textContent = weekChange !== null ? formatMoneySign(weekChange) : '—';
+  if (weekChange !== null) applyColorClass(weekEl, weekChange);
+
+  monthEl.textContent = monthChange !== null ? formatMoneySign(monthChange) : '—';
+  if (monthChange !== null) applyColorClass(monthEl, monthChange);
+}
+
+/* =====================================================
+   RENDER — TABS
+===================================================== */
+function renderTabs() {
+  const tabbar = $('tabbar');
+  tabbar.innerHTML = '';
+
+  // All tab
+  const allBtn = document.createElement('button');
+  allBtn.className = 'tab-btn' + (state.activeTab === 'all' ? ' active' : '');
+  allBtn.setAttribute('role', 'tab');
+  allBtn.setAttribute('aria-selected', state.activeTab === 'all');
+  allBtn.textContent = '전체';
+  allBtn.addEventListener('click', () => { state.activeTab = 'all'; renderAll(); });
+  tabbar.appendChild(allBtn);
+
+  // Broker tabs
+  for (const b of state.data.brokers) {
+    const btn = document.createElement('button');
+    btn.className = 'tab-btn' + (state.activeTab === b.id ? ' active' : '');
+    btn.setAttribute('role', 'tab');
+    btn.setAttribute('aria-selected', state.activeTab === b.id);
+    btn.innerHTML = `<span class="tab-dot" style="background:${b.color}"></span>${escHtml(b.name)}
+      <button class="btn-icon" style="width:20px;height:20px;margin-left:2px;" aria-label="${escHtml(b.name)} 설정" title="설정">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" width="12" height="12"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"/></svg>
+      </button>`;
+
+    // Click tab (not the settings button)
+    btn.addEventListener('click', (e) => {
+      if (e.target.closest('.btn-icon')) return;
+      state.activeTab = b.id;
+      renderAll();
+    });
+    btn.querySelector('.btn-icon').addEventListener('click', (e) => {
+      e.stopPropagation();
+      openBrokerModal(b);
+    });
+    tabbar.appendChild(btn);
+  }
+
+  // Add broker button
+  const addBtn = document.createElement('button');
+  addBtn.className = 'tab-add-btn';
+  addBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" width="14" height="14"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg> 증권사 추가`;
+  addBtn.addEventListener('click', () => openBrokerModal(null));
+  tabbar.appendChild(addBtn);
+}
+
+/* =====================================================
+   BROKER MODAL
+===================================================== */
+function openBrokerModal(broker) {
+  const modal = $('modal-broker');
+  $('modal-broker-title').textContent = broker ? '증권사 수정' : '증권사 추가';
+  $('broker-edit-id').value = broker ? broker.id : '';
+  $('inp-broker-name').value = broker ? broker.name : '';
+  $('inp-broker-target').value = broker ? broker.target_return : '';
+  $('inp-broker-color').value = broker ? broker.color : BROKER_COLORS[state.data.brokers.length % BROKER_COLORS.length];
+
+  // Swatches
+  const swatchEl = $('broker-color-swatches');
+  swatchEl.innerHTML = '';
+  BROKER_COLORS.forEach(c => {
+    const s = document.createElement('button');
+    s.className = 'color-swatch' + ((broker ? broker.color : BROKER_COLORS[0]) === c ? ' selected' : '');
+    s.style.background = c;
+    s.setAttribute('aria-label', '색상 ' + c);
+    s.addEventListener('click', () => {
+      swatchEl.querySelectorAll('.color-swatch').forEach(el => el.classList.remove('selected'));
+      s.classList.add('selected');
+      $('inp-broker-color').value = c;
+    });
+    swatchEl.appendChild(s);
+  });
+
+  // Delete button for existing
+  let existingDeleteBtn = modal.querySelector('.btn-broker-delete');
+  if (existingDeleteBtn) existingDeleteBtn.remove();
+  if (broker) {
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn btn-danger btn-sm btn-broker-delete';
+    delBtn.style.marginRight = 'auto';
+    delBtn.textContent = '삭제';
+    delBtn.addEventListener('click', () => {
+      closeModal('modal-broker');
+      openConfirm(
+        `"${broker.name}" 삭제`,
+        `"${broker.name}"과(와) 관련된 모든 잔액 기록, 입출금 기록이 함께 삭제됩니다. 계속하시겠습니까?`,
+        async () => {
+          state.data.brokers = state.data.brokers.filter(b => b.id !== broker.id);
+          state.data.balance_records = state.data.balance_records.filter(r => r.broker_id !== broker.id);
+          state.data.cashflow_records = state.data.cashflow_records.filter(r => r.broker_id !== broker.id);
+          if (state.activeTab === broker.id) state.activeTab = 'all';
+          try {
+            await saveData(null);
+            toast(`"${broker.name}"이(가) 삭제되었습니다.`);
+          } catch {}
+          renderAll();
+        }
+      );
+    });
+    $('modal-broker').querySelector('.modal-actions').prepend(delBtn);
+  }
+
+  modal.classList.remove('hidden');
+  $('inp-broker-name').focus();
+}
+
+$('btn-broker-cancel').addEventListener('click', () => closeModal('modal-broker'));
+$('btn-broker-save').addEventListener('click', async () => {
+  const name = $('inp-broker-name').value.trim();
+  const target = parseFloat($('inp-broker-target').value);
+  const color = $('inp-broker-color').value;
+  const editId = $('broker-edit-id').value;
+
+  if (!name) { toast('증권사명을 입력해주세요.', 'error'); return; }
+  if (isNaN(target) || target < 0) { toast('목표 수익률을 올바르게 입력해주세요.', 'error'); return; }
+
+  const btn = $('btn-broker-save');
+  btn.disabled = true;
+  btn.classList.add('btn-loading');
+
+  try {
+    if (editId) {
+      const b = state.data.brokers.find(b => b.id === editId);
+      if (b) { b.name = name; b.color = color; b.target_return = target; }
+    } else {
+      state.data.brokers.push({
+        id: uuid(), name, color, target_return: target,
+        created_at: new Date().toISOString(),
+        order: state.data.brokers.length + 1
+      });
+    }
+    await saveData(null);
+    closeModal('modal-broker');
+    toast(editId ? '수정되었습니다.' : '증권사가 추가되었습니다.', 'success');
+    renderAll();
+  } catch {
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove('btn-loading');
+  }
+});
+
+/* =====================================================
+   CONFIRM MODAL
+===================================================== */
+function openConfirm(title, body, cb) {
+  $('modal-confirm-title').textContent = title;
+  $('modal-confirm-body').textContent = body;
+  state.confirmCallback = cb;
+  $('modal-confirm').classList.remove('hidden');
+}
+$('btn-confirm-cancel').addEventListener('click', () => closeModal('modal-confirm'));
+$('btn-confirm-ok').addEventListener('click', async () => {
+  closeModal('modal-confirm');
+  if (state.confirmCallback) await state.confirmCallback();
+  state.confirmCallback = null;
+});
+
+/* =====================================================
+   CLOSE MODAL
+===================================================== */
+function closeModal(id) {
+  $(id).classList.add('hidden');
+}
+// Close on overlay click
+document.querySelectorAll('.modal-overlay').forEach(o => {
+  o.addEventListener('click', e => { if (e.target === o) o.classList.add('hidden'); });
+});
+
+/* =====================================================
+   INPUT FORMS — BALANCE
+===================================================== */
+function setDefaultDatetime(inputId) {
+  $(inputId).value = toLocalDatetimeInput(null);
+}
+
+// Format amount on input
+['inp-balance', 'inp-cf-amount', 'edit-balance-amount', 'edit-cf-amount'].forEach(id => {
+  const el = $(id);
+  if (el) el.addEventListener('input', () => formatInputAmount(el));
+});
+
+$('btn-save-balance').addEventListener('click', async () => {
+  if (state.activeTab === 'all') { toast('특정 증권사 탭에서 입력해주세요.', 'error'); return; }
+  const raw = parseAmount($('inp-balance').value);
+  if (isNaN(raw) || raw <= 0) { toast('평가금액을 올바르게 입력해주세요.', 'error'); return; }
+
+  const dateVal = $('inp-balance-date').value;
+  const memo = $('inp-balance-memo').value.trim();
+  const now = new Date().toISOString();
+  const rec = {
+    id: uuid(),
+    broker_id: state.activeTab,
+    balance: raw,
+    recorded_at: dateVal ? datetimeLocalToISO(dateVal) : now,
+    memo: memo || null,
+    created_at: now,
+  };
+  state.data.balance_records.push(rec);
+  const btn = $('btn-save-balance');
+  try {
+    await saveData(btn);
+    $('inp-balance').value = '';
+    $('inp-balance-memo').value = '';
+    setDefaultDatetime('inp-balance-date');
+    toast('잔액이 기록되었습니다.', 'success');
+    renderAll();
+  } catch {
+    state.data.balance_records.pop();
+  }
+});
+
+/* =====================================================
+   INPUT FORMS — CASHFLOW
+===================================================== */
+function updateRadioStyle() {
+  const val = document.querySelector('input[name="cf-type"]:checked')?.value;
+  $('label-deposit').className = 'radio-label' + (val === 'deposit' ? ' deposit-active' : '');
+  $('label-withdrawal').className = 'radio-label' + (val === 'withdrawal' ? ' withdrawal-active' : '');
+}
+document.querySelectorAll('input[name="cf-type"]').forEach(r => r.addEventListener('change', updateRadioStyle));
+updateRadioStyle();
+
+$('btn-save-cashflow').addEventListener('click', async () => {
+  if (state.activeTab === 'all') { toast('특정 증권사 탭에서 입력해주세요.', 'error'); return; }
+  const type = document.querySelector('input[name="cf-type"]:checked')?.value;
+  const raw = parseAmount($('inp-cf-amount').value);
+  if (isNaN(raw) || raw <= 0) { toast('금액을 올바르게 입력해주세요.', 'error'); return; }
+
+  const dateVal = $('inp-cf-date').value;
+  const memo = $('inp-cf-memo').value.trim();
+  const now = new Date().toISOString();
+  const rec = {
+    id: uuid(),
+    broker_id: state.activeTab,
+    type,
+    amount: raw,
+    transacted_at: dateVal ? datetimeLocalToISO(dateVal) : now,
+    memo: memo || null,
+    created_at: now,
+  };
+  state.data.cashflow_records.push(rec);
+  const btn = $('btn-save-cashflow');
+  try {
+    await saveData(btn);
+    $('inp-cf-amount').value = '';
+    $('inp-cf-memo').value = '';
+    setDefaultDatetime('inp-cf-date');
+    toast(`${type === 'deposit' ? '입금' : '출금'} 기록이 저장되었습니다.`, 'success');
+    renderAll();
+  } catch {
+    state.data.cashflow_records.pop();
+  }
+});
+
+/* =====================================================
+   RECORD TABLES
+===================================================== */
+function renderTables() {
+  const brokerId = state.activeTab;
+  const brokerName = brokerId !== 'all' ? (state.data.brokers.find(b => b.id === brokerId)?.name || '') : '';
+
+  // Section labels
+  $('balance-input-broker-name').textContent = brokerName ? `— ${brokerName}` : '';
+  $('cashflow-input-broker-name').textContent = brokerName ? `— ${brokerName}` : '';
+
+  // Hide input sections on "all" tab
+  const isAll = brokerId === 'all';
+  $('balance-input-section').classList.toggle('hidden', isAll);
+  $('cashflow-input-section').classList.toggle('hidden', isAll);
+
+  // Balance records
+  let bals = brokerId === 'all'
+    ? state.data.balance_records.slice()
+    : state.data.balance_records.filter(r => r.broker_id === brokerId);
+  bals.sort((a, b) => new Date(b.recorded_at) - new Date(a.recorded_at));
+
+  const tbodyB = $('tbody-balance');
+  tbodyB.innerHTML = '';
+  if (bals.length === 0) {
+    tbodyB.innerHTML = '<tr class="empty-row"><td colspan="5">기록이 없습니다.</td></tr>';
+  } else {
+    bals.forEach(r => {
+      const broker = state.data.brokers.find(b => b.id === r.broker_id);
+      const c = calcBroker(r.broker_id);
+      // Return at this point: approximate — use current calc as proxy
+      const rPct = c.returnPct;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="primary num">${formatDt(r.recorded_at)}</td>
+        <td class="num">${formatMoney(r.balance)}</td>
+        <td class="num ${rPct !== null ? (rPct >= 0 ? 'positive' : 'negative') : ''}">${rPct !== null ? formatPct(rPct) : '—'}</td>
+        <td style="color:var(--text-muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(r.memo || '—')}</td>
+        <td>
+          <div class="action-btns">
+            <button class="btn btn-xs btn-secondary" data-id="${r.id}" data-action="edit-balance" aria-label="수정">✏️</button>
+            <button class="btn btn-xs btn-danger" data-id="${r.id}" data-action="del-balance" aria-label="삭제">🗑️</button>
+          </div>
+        </td>`;
+      tbodyB.appendChild(tr);
+    });
+  }
+
+  // Cashflow records
+  let cfs = brokerId === 'all'
+    ? state.data.cashflow_records.slice()
+    : state.data.cashflow_records.filter(r => r.broker_id === brokerId);
+  cfs.sort((a, b) => new Date(b.transacted_at) - new Date(a.transacted_at));
+
+  const tbodyC = $('tbody-cashflow');
+  tbodyC.innerHTML = '';
+  if (cfs.length === 0) {
+    tbodyC.innerHTML = '<tr class="empty-row"><td colspan="5">기록이 없습니다.</td></tr>';
+  } else {
+    cfs.forEach(r => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="primary num">${formatDt(r.transacted_at)}</td>
+        <td><span class="badge badge-${r.type}">${r.type === 'deposit' ? '입금' : '출금'}</span></td>
+        <td class="num ${r.type === 'deposit' ? 'positive' : 'negative'}">${formatMoney(r.amount)}</td>
+        <td style="color:var(--text-muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(r.memo || '—')}</td>
+        <td>
+          <div class="action-btns">
+            <button class="btn btn-xs btn-secondary" data-id="${r.id}" data-action="edit-cf" aria-label="수정">✏️</button>
+            <button class="btn btn-xs btn-danger" data-id="${r.id}" data-action="del-cf" aria-label="삭제">🗑️</button>
+          </div>
+        </td>`;
+      tbodyC.appendChild(tr);
+    });
+  }
+}
+
+// Table action delegation
+document.getElementById('records-balance-panel').addEventListener('click', e => {
+  const btn = e.target.closest('[data-action]');
+  if (!btn) return;
+  const id = btn.dataset.id;
+  const action = btn.dataset.action;
+  if (action === 'edit-balance') openEditBalanceModal(id);
+  if (action === 'del-balance') confirmDeleteBalance(id);
+});
+document.getElementById('records-cashflow-panel').addEventListener('click', e => {
+  const btn = e.target.closest('[data-action]');
+  if (!btn) return;
+  const id = btn.dataset.id;
+  const action = btn.dataset.action;
+  if (action === 'edit-cf') openEditCfModal(id);
+  if (action === 'del-cf') confirmDeleteCf(id);
+});
+
+// Record tab switch
+$('rtab-balance').addEventListener('click', () => {
+  state.activeRecordTab = 'balance';
+  $('rtab-balance').classList.add('active');
+  $('rtab-cashflow').classList.remove('active');
+  $('records-balance-panel').classList.remove('hidden');
+  $('records-cashflow-panel').classList.add('hidden');
+});
+$('rtab-cashflow').addEventListener('click', () => {
+  state.activeRecordTab = 'cashflow';
+  $('rtab-cashflow').classList.add('active');
+  $('rtab-balance').classList.remove('active');
+  $('records-cashflow-panel').classList.remove('hidden');
+  $('records-balance-panel').classList.add('hidden');
+});
+
+/* =====================================================
+   EDIT BALANCE MODAL
+===================================================== */
+function openEditBalanceModal(id) {
+  const r = state.data.balance_records.find(r => r.id === id);
+  if (!r) return;
+  $('edit-balance-id').value = r.id;
+  $('edit-balance-amount').value = r.balance.toLocaleString('ko-KR');
+  $('edit-balance-date').value = toLocalDatetimeInput(r.recorded_at);
+  $('edit-balance-memo').value = r.memo || '';
+  $('modal-edit-balance').classList.remove('hidden');
+}
+$('btn-edit-balance-cancel').addEventListener('click', () => closeModal('modal-edit-balance'));
+$('btn-edit-balance-save').addEventListener('click', async () => {
+  const id = $('edit-balance-id').value;
+  const raw = parseAmount($('edit-balance-amount').value);
+  if (isNaN(raw) || raw <= 0) { toast('금액을 올바르게 입력해주세요.', 'error'); return; }
+  const dateVal = $('edit-balance-date').value;
+  const memo = $('edit-balance-memo').value.trim();
+  const r = state.data.balance_records.find(r => r.id === id);
+  if (!r) return;
+  const old = { ...r };
+  r.balance = raw;
+  r.recorded_at = dateVal ? datetimeLocalToISO(dateVal) : r.recorded_at;
+  r.memo = memo || null;
+  try {
+    await saveData($('btn-edit-balance-save'));
+    closeModal('modal-edit-balance');
+    toast('수정되었습니다.', 'success');
+    renderAll();
+  } catch {
+    Object.assign(r, old);
+  }
+});
+
+/* =====================================================
+   EDIT CASHFLOW MODAL
+===================================================== */
+function openEditCfModal(id) {
+  const r = state.data.cashflow_records.find(r => r.id === id);
+  if (!r) return;
+  $('edit-cf-id').value = r.id;
+  $('edit-cf-amount').value = r.amount.toLocaleString('ko-KR');
+  $('edit-cf-date').value = toLocalDatetimeInput(r.transacted_at);
+  $('edit-cf-memo').value = r.memo || '';
+  document.querySelectorAll('input[name="edit-cf-type"]').forEach(el => { el.checked = el.value === r.type; });
+  updateEditCfRadio();
+  $('modal-edit-cashflow').classList.remove('hidden');
+}
+function updateEditCfRadio() {
+  const val = document.querySelector('input[name="edit-cf-type"]:checked')?.value;
+  $('edit-label-deposit').className = 'radio-label' + (val === 'deposit' ? ' deposit-active' : '');
+  $('edit-label-withdrawal').className = 'radio-label' + (val === 'withdrawal' ? ' withdrawal-active' : '');
+}
+document.querySelectorAll('input[name="edit-cf-type"]').forEach(r => r.addEventListener('change', updateEditCfRadio));
+$('btn-edit-cf-cancel').addEventListener('click', () => closeModal('modal-edit-cashflow'));
+$('btn-edit-cf-save').addEventListener('click', async () => {
+  const id = $('edit-cf-id').value;
+  const type = document.querySelector('input[name="edit-cf-type"]:checked')?.value;
+  const raw = parseAmount($('edit-cf-amount').value);
+  if (isNaN(raw) || raw <= 0) { toast('금액을 올바르게 입력해주세요.', 'error'); return; }
+  const dateVal = $('edit-cf-date').value;
+  const memo = $('edit-cf-memo').value.trim();
+  const r = state.data.cashflow_records.find(r => r.id === id);
+  if (!r) return;
+  const old = { ...r };
+  r.type = type;
+  r.amount = raw;
+  r.transacted_at = dateVal ? datetimeLocalToISO(dateVal) : r.transacted_at;
+  r.memo = memo || null;
+  try {
+    await saveData($('btn-edit-cf-save'));
+    closeModal('modal-edit-cashflow');
+    toast('수정되었습니다.', 'success');
+    renderAll();
+  } catch {
+    Object.assign(r, old);
+  }
+});
+
+/* =====================================================
+   DELETE RECORDS
+===================================================== */
+function confirmDeleteBalance(id) {
+  const r = state.data.balance_records.find(r => r.id === id);
+  if (!r) return;
+  openConfirm('잔액 기록 삭제', `${formatDt(r.recorded_at)} 기록 (${formatMoney(r.balance)})을 삭제하시겠습니까?`, async () => {
+    state.data.balance_records = state.data.balance_records.filter(r => r.id !== id);
+    try {
+      await saveData(null);
+      toast('삭제되었습니다.');
+      renderAll();
+    } catch {
+      state.data.balance_records.push(r);
+    }
+  });
+}
+function confirmDeleteCf(id) {
+  const r = state.data.cashflow_records.find(r => r.id === id);
+  if (!r) return;
+  openConfirm('입출금 기록 삭제', `${formatDt(r.transacted_at)} ${r.type === 'deposit' ? '입금' : '출금'} (${formatMoney(r.amount)})을 삭제하시겠습니까?`, async () => {
+    state.data.cashflow_records = state.data.cashflow_records.filter(r => r.id !== id);
+    try {
+      await saveData(null);
+      toast('삭제되었습니다.');
+      renderAll();
+    } catch {
+      state.data.cashflow_records.push(r);
+    }
+  });
+}
+
+/* =====================================================
+   CHARTS
+===================================================== */
+function getFilteredBalances(brokerId, period) {
+  let records = brokerId === 'all'
+    ? state.data.balance_records.slice()
+    : state.data.balance_records.filter(r => r.broker_id === brokerId);
+  records.sort((a, b) => new Date(a.recorded_at) - new Date(b.recorded_at));
+
+  if (period !== 'ALL') {
+    const now = new Date();
+    const cutoff = new Date(now);
+    if (period === '1M') cutoff.setMonth(now.getMonth() - 1);
+    else if (period === '3M') cutoff.setMonth(now.getMonth() - 3);
+    else if (period === '6M') cutoff.setMonth(now.getMonth() - 6);
+    else if (period === '1Y') cutoff.setFullYear(now.getFullYear() - 1);
+    records = records.filter(r => new Date(r.recorded_at) >= cutoff);
+  }
+  return records;
+}
+
+function renderLineChart() {
+  const brokerId = state.activeTab;
+  const period = state.activePeriod;
+  const ctx = $('line-chart').getContext('2d');
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const gridColor = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)';
+  const textColor = isDark ? '#9E9C97' : '#9E9C97';
+
+  let datasets = [];
+  let hasData = false;
+
+  if (brokerId === 'all') {
+    for (const b of state.data.brokers) {
+      const recs = getFilteredBalances(b.id, period);
+      if (recs.length === 0) continue;
+      hasData = true;
+      datasets.push({
+        label: b.name,
+        data: recs.map(r => ({ x: new Date(r.recorded_at), y: r.balance })),
+        borderColor: b.color,
+        backgroundColor: b.color + '22',
+        tension: 0.3,
+        pointRadius: recs.length < 30 ? 3 : 0,
+        pointHoverRadius: 5,
+        fill: false,
+      });
+      // Target return line
+      if (b.target_return > 0 && recs.length > 0) {
+        const c = calcBroker(b.id);
+        if (c.totalDeposit > 0) {
+          const targetBalance = c.totalDeposit * (1 + b.target_return / 100);
+          const first = new Date(recs[0].recorded_at);
+          const last = new Date(recs[recs.length-1].recorded_at);
+          datasets.push({
+            label: `${b.name} 목표(${b.target_return}%)`,
+            data: [{ x: first, y: targetBalance }, { x: last, y: targetBalance }],
+            borderColor: b.color,
+            borderDash: [5, 4],
+            borderWidth: 1.5,
+            pointRadius: 0,
+            fill: false,
+          });
+        }
+      }
+    }
+  } else {
+    const b = state.data.brokers.find(b => b.id === brokerId);
+    const recs = getFilteredBalances(brokerId, period);
+    if (recs.length > 0 && b) {
+      hasData = true;
+      datasets.push({
+        label: b.name,
+        data: recs.map(r => ({ x: new Date(r.recorded_at), y: r.balance })),
+        borderColor: b.color,
+        backgroundColor: b.color + '22',
+        tension: 0.3,
+        pointRadius: recs.length < 30 ? 3 : 0,
+        pointHoverRadius: 5,
+        fill: true,
+      });
+      // Target return line
+      if (b.target_return > 0) {
+        const c = calcBroker(b.id);
+        if (c.totalDeposit > 0) {
+          const targetBalance = c.totalDeposit * (1 + b.target_return / 100);
+          const first = new Date(recs[0].recorded_at);
+          const last = new Date(recs[recs.length-1].recorded_at);
+          datasets.push({
+            label: `목표 ${b.target_return}%`,
+            data: [{ x: first, y: targetBalance }, { x: last, y: targetBalance }],
+            borderColor: b.color + 'BB',
+            borderDash: [6, 4],
+            borderWidth: 1.5,
+            pointRadius: 0,
+            fill: false,
+          });
+        }
+      }
+    }
+  }
+
+  $('line-chart-empty').classList.toggle('hidden', hasData);
+  $('line-chart').classList.toggle('hidden', !hasData);
+
+  if (state.lineChart) {
+    state.lineChart.destroy();
+    state.lineChart = null;
+  }
+  if (!hasData) return;
+
+  state.lineChart = new Chart(ctx, {
+    type: 'line',
+    data: { datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          display: datasets.length > 1,
+          position: 'top',
+          labels: { color: textColor, boxWidth: 12, font: { family: 'Pretendard', size: 11 } }
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.dataset.label}: ${Math.round(ctx.parsed.y).toLocaleString('ko-KR')}원`
+          }
+        }
+      },
+      scales: {
+        x: {
+          type: 'time',
+          time: { tooltipFormat: 'yyyy-MM-dd HH:mm', displayFormats: { day: 'MM/dd', month: 'yyyy/MM' } },
+          grid: { color: gridColor },
+          ticks: { color: textColor, maxTicksLimit: 6, font: { family: 'Pretendard', size: 11 } }
+        },
+        y: {
+          grid: { color: gridColor },
+          ticks: {
+            color: textColor,
+            font: { family: 'Pretendard', size: 11 },
+            callback: v => (v >= 1000000 ? (v/1000000).toFixed(1)+'M' : v >= 10000 ? (v/10000).toFixed(0)+'만' : v.toLocaleString('ko-KR'))
+          }
+        }
+      }
+    }
+  });
+}
+
+function renderPieChart() {
+  const isAll = state.activeTab === 'all';
+  $('pie-chart-card').classList.toggle('hidden', !isAll);
+  if (!isAll) return;
+
+  const ctx = $('pie-chart').getContext('2d');
+  const brokers = state.data.brokers;
+  const data = brokers.map(b => {
+    const recs = state.data.balance_records.filter(r => r.broker_id === b.id)
+      .sort((a, bb) => new Date(a.recorded_at) - new Date(bb.recorded_at));
+    return { name: b.name, color: b.color, balance: recs.length > 0 ? recs[recs.length-1].balance : 0 };
+  }).filter(d => d.balance > 0);
+
+  const total = data.reduce((s, d) => s + d.balance, 0);
+  const hasData = data.length > 0 && total > 0;
+
+  $('pie-chart-empty').classList.toggle('hidden', hasData);
+  $('pie-chart').classList.toggle('hidden', !hasData);
+
+  const legendEl = $('pie-legend');
+  legendEl.innerHTML = '';
+
+  if (state.pieChart) { state.pieChart.destroy(); state.pieChart = null; }
+  if (!hasData) return;
+
+  state.pieChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: data.map(d => d.name),
+      datasets: [{
+        data: data.map(d => d.balance),
+        backgroundColor: data.map(d => d.color),
+        borderColor: document.documentElement.getAttribute('data-theme') === 'dark' ? '#1E1D19' : '#fff',
+        borderWidth: 2,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.label}: ${Math.round(ctx.raw).toLocaleString('ko-KR')}원 (${(ctx.raw/total*100).toFixed(1)}%)`
+          }
+        }
+      }
+    }
+  });
+
+  data.forEach(d => {
+    const pct = (d.balance / total * 100).toFixed(1);
+    const item = document.createElement('div');
+    item.className = 'pie-legend-item';
+    item.innerHTML = `<span class="pie-legend-dot" style="background:${d.color}"></span><span>${escHtml(d.name)}</span><span class="pie-legend-pct">${pct}%</span>`;
+    legendEl.appendChild(item);
+  });
+}
+
+// Period buttons
+$('period-btns').addEventListener('click', e => {
+  const btn = e.target.closest('.period-btn');
+  if (!btn) return;
+  state.activePeriod = btn.dataset.period;
+  document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderLineChart();
+});
+
+/* =====================================================
+   DATA MANAGEMENT
+===================================================== */
+$('btn-csv-export').addEventListener('click', () => {
+  const brokerId = state.activeTab;
+  const broker = state.data.brokers.find(b => b.id === brokerId);
+  const brokerName = broker ? broker.name : '전체';
+
+  let csv = '구분,날짜시간,금액,수익률,메모\n';
+  const bals = (brokerId === 'all' ? state.data.balance_records : state.data.balance_records.filter(r => r.broker_id === brokerId))
+    .sort((a,b) => new Date(a.recorded_at) - new Date(b.recorded_at));
+
+  bals.forEach(r => {
+    const c = calcBroker(r.broker_id);
+    const pct = c.returnPct !== null ? c.returnPct.toFixed(2) + '%' : '';
+    csv += `잔액기록,${formatDt(r.recorded_at)},${r.balance},${pct},"${(r.memo||'').replace(/"/g,'""')}"\n`;
+  });
+
+  const cfs = (brokerId === 'all' ? state.data.cashflow_records : state.data.cashflow_records.filter(r => r.broker_id === brokerId))
+    .sort((a,b) => new Date(a.transacted_at) - new Date(b.transacted_at));
+
+  cfs.forEach(r => {
+    csv += `${r.type === 'deposit' ? '입금' : '출금'},${formatDt(r.transacted_at)},${r.amount},-,"${(r.memo||'').replace(/"/g,'""')}"\n`;
+  });
+
+  downloadFile(`investment-tracker-${brokerName}-${new Date().toISOString().slice(0,10)}.csv`, csv, 'text/csv;charset=utf-8;');
+  toast('CSV 파일이 다운로드됩니다.', 'success');
+});
+
+$('btn-json-backup').addEventListener('click', () => {
+  const json = JSON.stringify(state.data, null, 2);
+  downloadFile(`investment-tracker-backup-${new Date().toISOString().slice(0,10)}.json`, json, 'application/json');
+  toast('JSON 백업 파일이 다운로드됩니다.', 'success');
+});
+
+$('btn-json-restore').addEventListener('click', () => {
+  $('file-restore').value = '';
+  $('file-restore').click();
+});
+
+$('file-restore').addEventListener('change', e => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    try {
+      const parsed = JSON.parse(ev.target.result);
+      if (!parsed.brokers || !Array.isArray(parsed.brokers)) throw new Error('올바른 형식의 파일이 아닙니다.');
+      state.restorePendingData = parsed;
+      $('modal-restore-confirm').classList.remove('hidden');
+    } catch (err) {
+      toast('파일 파싱 실패: ' + err.message, 'error');
+    }
+  };
+  reader.readAsText(file);
+});
+
+$('btn-restore-cancel').addEventListener('click', () => {
+  closeModal('modal-restore-confirm');
+  state.restorePendingData = null;
+});
+$('btn-restore-ok').addEventListener('click', async () => {
+  closeModal('modal-restore-confirm');
+  if (!state.restorePendingData) return;
+  state.data = state.restorePendingData;
+  state.restorePendingData = null;
+  try {
+    await saveData(null);
+    state.activeTab = 'all';
+    renderAll();
+    toast('복원이 완료되었습니다.', 'success');
+  } catch {}
+});
+
+function downloadFile(filename, content, mime) {
+  const blob = new Blob(['\uFEFF' + content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/* =====================================================
+   SECURITY — XSS prevention
+===================================================== */
+function escHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+}
+
+/* =====================================================
+   RENDER ALL
+===================================================== */
+function renderAll() {
+  renderTabs();
+  renderKPI();
+  renderTables();
+  renderLineChart();
+  renderPieChart();
+}
+
+/* =====================================================
+   INIT
+===================================================== */
+function init() {
+  // Theme
+  const savedTheme = sessionStorage.getItem(SESSION_KEY_THEME)
+    || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  applyTheme(savedTheme);
+
+  // Set default datetimes
+  setDefaultDatetime('inp-balance-date');
+  setDefaultDatetime('inp-cf-date');
+
+  // Auto-resume session
+  const pat = sessionStorage.getItem(SESSION_KEY_PAT);
+  const gistId = sessionStorage.getItem(SESSION_KEY_GIST);
+
+  if (pat && gistId) {
+    state.pat = pat;
+    state.gistId = gistId;
+    gistGet().then(loaded => {
+      if (loaded && loaded.brokers) state.data = loaded;
+      hideSetup();
+      renderAll();
+    }).catch(() => {
+      showSetup();
+    });
+  } else {
+    showSetup();
+  }
+}
+
+init();
+</script>
+</body>
+</html>
