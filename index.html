@@ -2044,21 +2044,103 @@ function confirmDeleteCf(id) {
 /* =====================================================
    CHARTS
 ===================================================== */
-function getFilteredBalances(brokerId, period) {
-  let records = brokerId === 'all'
-    ? state.data.balance_records.slice()
-    : state.data.balance_records.filter(r => r.broker_id === brokerId);
-  records.sort((a, b) => new Date(a.recorded_at) - new Date(b.recorded_at));
 
-  if (period !== 'ALL') {
-    const now = new Date();
-    const cutoff = new Date(now);
-    if (period === '1M') cutoff.setMonth(now.getMonth() - 1);
-    else if (period === '3M') cutoff.setMonth(now.getMonth() - 3);
-    else if (period === '6M') cutoff.setMonth(now.getMonth() - 6);
-    else if (period === '1Y') cutoff.setFullYear(now.getFullYear() - 1);
-    records = records.filter(r => new Date(r.recorded_at) >= cutoff);
+// 날짜 문자열 'YYYY-MM-DD' 반환
+function toDateKey(isoStr) {
+  const d = new Date(isoStr);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+}
+
+// 기간 cutoff Date 반환
+function getPeriodCutoff(period) {
+  const now = new Date();
+  if (period === 'ALL') return null;
+  const c = new Date(now);
+  if (period === '1M') c.setMonth(now.getMonth() - 1);
+  else if (period === '3M') c.setMonth(now.getMonth() - 3);
+  else if (period === '6M') c.setMonth(now.getMonth() - 6);
+  else if (period === '1Y') c.setFullYear(now.getFullYear() - 1);
+  c.setHours(0, 0, 0, 0);
+  return c;
+}
+
+// 브로커별 날짜→최고잔액 맵 (동일 날짜 중 최대값, 기간 필터 적용)
+function getBalanceByDate(brokerId, period) {
+  const cutoff = getPeriodCutoff(period);
+  const records = state.data.balance_records.filter(r => {
+    if (r.broker_id !== brokerId) return false;
+    if (cutoff && new Date(r.recorded_at) < cutoff) return false;
+    return true;
+  });
+  // 날짜별 최대 잔액
+  const map = new Map();
+  for (const r of records) {
+    const key = toDateKey(r.recorded_at);
+    if (!map.has(key) || r.balance > map.get(key).balance) {
+      map.set(key, { balance: r.balance, recorded_at: r.recorded_at });
+    }
   }
+  return map; // Map<'YYYY-MM-DD', {balance, recorded_at}>
+}
+
+// 날짜 범위의 모든 날짜 배열 생성 ('YYYY-MM-DD' 배열)
+function buildDateRange(startKey, endKey) {
+  const dates = [];
+  const cur = new Date(startKey + 'T00:00:00');
+  const end = new Date(endKey + 'T00:00:00');
+  while (cur <= end) {
+    const y = cur.getFullYear();
+    const m = String(cur.getMonth() + 1).padStart(2, '0');
+    const d = String(cur.getDate()).padStart(2, '0');
+    dates.push(`${y}-${m}-${d}`);
+    cur.setDate(cur.getDate() + 1);
+  }
+  return dates;
+}
+
+// 날짜→수익률 계산 (해당 날짜 기준 입출금 반영)
+function calcReturnByDate(brokerId, balance, dateKey) {
+  // dateKey 당일 23:59:59 까지의 입출금을 반영
+  const cutoffTime = new Date(dateKey + 'T23:59:59');
+  const cfs = state.data.cashflow_records.filter(r =>
+    r.broker_id === brokerId && new Date(r.transacted_at) <= cutoffTime
+  );
+  const totalDeposit = cfs.filter(r => r.type === 'deposit').reduce((s, r) => s + r.amount, 0);
+  const totalWithdrawal = cfs.filter(r => r.type === 'withdrawal').reduce((s, r) => s + r.amount, 0);
+  if (totalDeposit === 0) return null;
+  const pnl = balance + totalWithdrawal - totalDeposit;
+  return (pnl / totalDeposit) * 100;
+}
+
+// X축 날짜 포맷 (기간별 적절히)
+function getXAxisFormat(period) {
+  if (period === '1M') return { unit: 'day',  displayFormats: { day: 'M/d' }, tooltipFormat: 'yyyy-MM-dd' };
+  if (period === '3M') return { unit: 'day',  displayFormats: { day: 'M/d' }, tooltipFormat: 'yyyy-MM-dd' };
+  if (period === '6M') return { unit: 'week', displayFormats: { week: 'M/d' }, tooltipFormat: 'yyyy-MM-dd' };
+  if (period === '1Y') return { unit: 'month', displayFormats: { month: 'yyyy/MM' }, tooltipFormat: 'yyyy-MM-dd' };
+  return { unit: 'month', displayFormats: { month: 'yyyy/MM' }, tooltipFormat: 'yyyy-MM-dd' };
+}
+
+// 기간별 maxTicksLimit
+function getMaxTicks(period) {
+  if (period === '1M') return 10;
+  if (period === '3M') return 9;
+  if (period === '6M') return 8;
+  if (period === '1Y') return 12;
+  return 12;
+}
+
+function getFilteredBalances(brokerId, period) {
+  const cutoff = getPeriodCutoff(period);
+  let records = state.data.balance_records.filter(r => {
+    if (brokerId !== 'all' && r.broker_id !== brokerId) return false;
+    if (cutoff && new Date(r.recorded_at) < cutoff) return false;
+    return true;
+  });
+  records.sort((a, b) => new Date(a.recorded_at) - new Date(b.recorded_at));
   return records;
 }
 
@@ -2072,85 +2154,82 @@ function renderLineChart() {
 
   let datasets = [];
   let hasData = false;
+  let allDateKeys = new Set();
 
-  if (brokerId === 'all') {
-    for (const b of state.data.brokers) {
-      const recs = getFilteredBalances(b.id, period);
-      if (recs.length === 0) continue;
-      hasData = true;
-      datasets.push({
-        label: b.name,
-        data: recs.map(r => ({ x: new Date(r.recorded_at), y: r.balance })),
-        borderColor: b.color,
-        backgroundColor: b.color + '22',
-        tension: 0.3,
-        pointRadius: recs.length < 30 ? 3 : 0,
-        pointHoverRadius: 5,
-        fill: false,
-      });
-      // Target return line
-      if (b.target_return > 0 && recs.length > 0) {
-        const c = calcBroker(b.id);
-        if (c.totalDeposit > 0) {
-          const targetBalance = c.totalDeposit * (1 + b.target_return / 100);
-          const first = new Date(recs[0].recorded_at);
-          const last = new Date(recs[recs.length-1].recorded_at);
-          datasets.push({
-            label: `${b.name} 목표(${b.target_return}%)`,
-            data: [{ x: first, y: targetBalance }, { x: last, y: targetBalance }],
-            borderColor: b.color,
-            borderDash: [5, 4],
-            borderWidth: 1.5,
-            pointRadius: 0,
-            fill: false,
-          });
-        }
-      }
-    }
-  } else {
-    const b = state.data.brokers.find(b => b.id === brokerId);
-    const recs = getFilteredBalances(brokerId, period);
-    if (recs.length > 0 && b) {
-      hasData = true;
-      datasets.push({
-        label: b.name,
-        data: recs.map(r => ({ x: new Date(r.recorded_at), y: r.balance })),
-        borderColor: b.color,
-        backgroundColor: b.color + '22',
-        tension: 0.3,
-        pointRadius: recs.length < 30 ? 3 : 0,
-        pointHoverRadius: 5,
-        fill: true,
-      });
-      // Target return line
-      if (b.target_return > 0) {
-        const c = calcBroker(b.id);
-        if (c.totalDeposit > 0) {
-          const targetBalance = c.totalDeposit * (1 + b.target_return / 100);
-          const first = new Date(recs[0].recorded_at);
-          const last = new Date(recs[recs.length-1].recorded_at);
-          datasets.push({
-            label: `목표 ${b.target_return}%`,
-            data: [{ x: first, y: targetBalance }, { x: last, y: targetBalance }],
-            borderColor: b.color + 'BB',
-            borderDash: [6, 4],
-            borderWidth: 1.5,
-            pointRadius: 0,
-            fill: false,
-          });
-        }
-      }
-    }
+  // 브로커별 날짜→최고잔액 수집, 전체 날짜 범위 파악
+  const brokerMaps = []; // { broker, balMap }
+
+  const targetBrokers = brokerId === 'all'
+    ? state.data.brokers
+    : state.data.brokers.filter(b => b.id === brokerId);
+
+  for (const b of targetBrokers) {
+    const balMap = getBalanceByDate(b.id, period);
+    if (balMap.size === 0) continue;
+    hasData = true;
+    balMap.forEach((_, key) => allDateKeys.add(key));
+    brokerMaps.push({ broker: b, balMap });
   }
 
   $('line-chart-empty').classList.toggle('hidden', hasData);
   $('line-chart').classList.toggle('hidden', !hasData);
 
-  if (state.lineChart) {
-    state.lineChart.destroy();
-    state.lineChart = null;
-  }
+  if (state.lineChart) { state.lineChart.destroy(); state.lineChart = null; }
   if (!hasData) return;
+
+  // 전체 날짜 범위 생성 (매일 빠짐없이)
+  const sortedKeys = Array.from(allDateKeys).sort();
+  const dateRange = buildDateRange(sortedKeys[0], sortedKeys[sortedKeys.length - 1]);
+
+  for (const { broker: b, balMap } of brokerMaps) {
+    // 날짜별 수익률 계산 (기록 없는 날 = null → 직전값 carry-forward)
+    let lastReturn = null;
+    const returnPoints = [];
+
+    for (const dateKey of dateRange) {
+      if (balMap.has(dateKey)) {
+        const ret = calcReturnByDate(b.id, balMap.get(dateKey).balance, dateKey);
+        lastReturn = ret;
+        returnPoints.push({ x: dateKey, y: ret });
+      } else {
+        // 기록 없는 날: 직전 수익률 유지 (null이면 null)
+        returnPoints.push({ x: dateKey, y: lastReturn });
+      }
+    }
+
+    const validPoints = returnPoints.filter(p => p.y !== null);
+    if (validPoints.length === 0) continue;
+
+    datasets.push({
+      label: b.name,
+      data: returnPoints.filter(p => p.y !== null).length > 0 ? returnPoints : [],
+      borderColor: b.color,
+      backgroundColor: b.color + '22',
+      tension: 0.3,
+      pointRadius: dateRange.length <= 31 ? 3 : (dateRange.length <= 90 ? 2 : 0),
+      pointHoverRadius: 5,
+      fill: brokerId !== 'all',
+      spanGaps: true,  // null 구간 선으로 연결
+    });
+
+    // 목표 수익률 수평선
+    if (b.target_return > 0) {
+      const firstKey = sortedKeys[0];
+      const lastKey = sortedKeys[sortedKeys.length - 1];
+      datasets.push({
+        label: brokerId === 'all' ? `${b.name} 목표(${b.target_return}%)` : `목표 ${b.target_return}%`,
+        data: [{ x: firstKey, y: b.target_return }, { x: lastKey, y: b.target_return }],
+        borderColor: b.color + 'AA',
+        borderDash: [6, 4],
+        borderWidth: 1.5,
+        pointRadius: 0,
+        fill: false,
+        spanGaps: true,
+      });
+    }
+  }
+
+  const xFmt = getXAxisFormat(period);
 
   state.lineChart = new Chart(ctx, {
     type: 'line',
@@ -2167,23 +2246,33 @@ function renderLineChart() {
         },
         tooltip: {
           callbacks: {
-            label: ctx => `${ctx.dataset.label}: ${Math.round(ctx.parsed.y).toLocaleString('ko-KR')}원`
+            label: ctx => {
+              const v = ctx.parsed.y;
+              if (v === null || v === undefined) return null;
+              const sign = v >= 0 ? '+' : '';
+              return `${ctx.dataset.label}: ${sign}${v.toFixed(2)}%`;
+            }
           }
         }
       },
       scales: {
         x: {
           type: 'time',
-          time: { tooltipFormat: 'yyyy-MM-dd HH:mm', displayFormats: { day: 'MM/dd', month: 'yyyy/MM' } },
+          time: xFmt,
           grid: { color: gridColor },
-          ticks: { color: textColor, maxTicksLimit: 6, font: { family: 'Pretendard', size: 11 } }
+          ticks: {
+            color: textColor,
+            maxTicksLimit: getMaxTicks(period),
+            font: { family: 'Pretendard', size: 11 },
+            maxRotation: 0,
+          }
         },
         y: {
           grid: { color: gridColor },
           ticks: {
             color: textColor,
             font: { family: 'Pretendard', size: 11 },
-            callback: v => (v >= 1000000 ? (v/1000000).toFixed(1)+'M' : v >= 10000 ? (v/10000).toFixed(0)+'만' : v.toLocaleString('ko-KR'))
+            callback: v => (v >= 0 ? '+' : '') + v.toFixed(1) + '%'
           }
         }
       }
