@@ -10,6 +10,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.1.0/dist/chartjs-plugin-annotation.min.js"></script>
   <style>
     /* =====================================================
        0. CSS VARIABLES (Design Tokens)
@@ -1493,7 +1494,7 @@ function calcBroker(brokerId) {
   // 연환산 수익률 (CAGR)
   let annualReturn = null;
   if (returnPct !== null && cfs.length > 0 && bals.length > 0) {
-    const firstCfDate = new Date(cfs.slice().sort((a, b) => new Date(a.date) - new Date(b.date))[0].date);
+    const firstCfDate = new Date(cfs.slice().sort((a, b) => new Date(a.transacted_at) - new Date(b.transacted_at))[0].transacted_at);
     const lastBalDate = new Date(bals[bals.length - 1].recorded_at);
     const days = (lastBalDate - firstCfDate) / (1000 * 60 * 60 * 24);
     if (days >= 1) {
@@ -1550,10 +1551,10 @@ function calcAll() {
   // 연환산 수익률 (전체: 가장 오래된 입금일 ~ 가장 최근 잔고 기준)
   let annualReturn = null;
   if (returnPct !== null) {
-    const allCfs = state.data.cashflow_records.slice().sort((a, b) => new Date(a.date) - new Date(b.date));
+    const allCfs = state.data.cashflow_records.slice().sort((a, b) => new Date(a.transacted_at) - new Date(b.transacted_at));
     const allBals2 = state.data.balance_records.slice().sort((a, b) => new Date(a.recorded_at) - new Date(b.recorded_at));
     if (allCfs.length > 0 && allBals2.length > 0) {
-      const firstCfDate = new Date(allCfs[0].date);
+      const firstCfDate = new Date(allCfs[0].transacted_at);
       const lastBalDate = new Date(allBals2[allBals2.length - 1].recorded_at);
       const days = (lastBalDate - firstCfDate) / (1000 * 60 * 60 * 24);
       if (days >= 1) {
@@ -2213,6 +2214,158 @@ function getFilteredBalances(brokerId, period) {
   return records;
 }
 
+/* =====================================================
+   CHART ANNOTATIONS
+===================================================== */
+function formatPeriodDiff(isoA, isoB) {
+  const days = Math.round((new Date(isoB) - new Date(isoA)) / (1000 * 60 * 60 * 24));
+  if (days <= 1) return '1일';
+  if (days < 7) return `${days}일`;
+  if (days < 30) return `${Math.round(days / 7)}주`;
+  if (days < 365) return `약 ${Math.round(days / 30)}개월`;
+  return `약 ${(days / 365).toFixed(1)}년`;
+}
+
+/**
+ * Chart.js 라인차트에 자동 이벤트 마커/코멘트 어노테이션 생성
+ * @param {Array} balanceRecords - [{ recorded_at, balance }]
+ * @param {Array} cashflowRecords - [{ transacted_at, type, amount }]
+ * @param {number|null} targetReturn - 목표 수익률(%)
+ * @returns {Array} chartjs-plugin-annotation 의 point annotation 배열
+ */
+function generateChartAnnotations(balanceRecords, cashflowRecords, targetReturn = null) {
+  const bals = [...balanceRecords].sort((a, b) => new Date(a.recorded_at) - new Date(b.recorded_at));
+  const cfs  = [...cashflowRecords].sort((a, b) => new Date(a.transacted_at) - new Date(b.transacted_at));
+  if (bals.length === 0) return [];
+
+  // 특정 시점까지의 누적 입출금으로 수익률 계산
+  function getReturnAt(recordedAtISO, balance) {
+    const cutoff = new Date(recordedAtISO);
+    const relevant = cfs.filter(r => new Date(r.transacted_at) <= cutoff);
+    const totalDeposit     = relevant.filter(r => r.type === 'deposit').reduce((s, r) => s + r.amount, 0);
+    const totalWithdrawal  = relevant.filter(r => r.type === 'withdrawal').reduce((s, r) => s + r.amount, 0);
+    if (totalDeposit === 0) return null;
+    return (balance + totalWithdrawal - totalDeposit) / totalDeposit * 100;
+  }
+
+  // 수익률 시계열 생성
+  const series = bals
+    .map(b => ({
+      dateKey: b.recorded_at.split('T')[0],
+      dateISO: b.recorded_at,
+      balance: b.balance,
+      ret: getReturnAt(b.recorded_at, b.balance),
+    }))
+    .filter(p => p.ret !== null);
+
+  if (series.length === 0) return [];
+
+  // 같은 날짜 이벤트를 모으는 맵
+  const eventsByDate = {};
+  const addEvent = (dateKey, type, comment, color) => {
+    if (!eventsByDate[dateKey]) eventsByDate[dateKey] = [];
+    eventsByDate[dateKey].push({ type, comment, color });
+  };
+
+  // ── 1. 추가 입금 → 수익률 희석 감지 ──────────────────────────
+  const deposits = cfs.filter(r => r.type === 'deposit');
+  for (const dep of deposits) {
+    const depDateKey = dep.transacted_at.split('T')[0];
+    const beforePts  = series.filter(p => p.dateKey < depDateKey);
+    const afterPts   = series.filter(p => p.dateKey >= depDateKey);
+    if (beforePts.length > 0 && afterPts.length > 0) {
+      const retBefore = beforePts[beforePts.length - 1].ret;
+      const retAfter  = afterPts[0].ret;
+      if (retAfter < retBefore) {
+        const diff   = retBefore - retAfter;
+        const amtFmt = Math.round(dep.amount).toLocaleString('ko-KR');
+        addEvent(afterPts[0].dateKey, 'deposit_dilution',
+          `추가 입금 ${amtFmt}원 — 수익률 ${diff.toFixed(1)}%p 희석 (실제 손실 아님)`,
+          '#3B82F6');
+      }
+    }
+  }
+
+  // ── 2. 출금 기록 ──────────────────────────────────────────────
+  const withdrawals = cfs.filter(r => r.type === 'withdrawal');
+  for (const wd of withdrawals) {
+    const wdDateKey = wd.transacted_at.split('T')[0];
+    // 출금일 당일 또는 이후 첫 번째 잔고 기록에 마커 표시
+    const targetPt = series.find(p => p.dateKey >= wdDateKey) || series[series.length - 1];
+    const amtFmt   = Math.round(wd.amount).toLocaleString('ko-KR');
+    addEvent(targetPt.dateKey, 'withdrawal',
+      `${amtFmt}원 출금 — 수익 실현`,
+      '#10B981');
+  }
+
+  // ── 3 & 4. 급등 / 급락 감지 (+5%p / -5%p) ────────────────────
+  for (let i = 1; i < series.length; i++) {
+    const prev = series[i - 1];
+    const curr = series[i];
+    const diff = curr.ret - prev.ret;
+    if (diff >= 5) {
+      const period = formatPeriodDiff(prev.dateISO, curr.dateISO);
+      addEvent(curr.dateKey, 'surge',
+        `${period} 동안 +${diff.toFixed(1)}%p 상승`,
+        '#16A34A');
+    } else if (diff <= -5) {
+      const period = formatPeriodDiff(prev.dateISO, curr.dateISO);
+      addEvent(curr.dateKey, 'drop',
+        `${period} 동안 ${diff.toFixed(1)}%p 하락`,
+        '#DC2626');
+    }
+  }
+
+  // ── 5. 목표 수익률 최초 달성 ──────────────────────────────────
+  if (targetReturn !== null && targetReturn > 0) {
+    let achieved = false;
+    for (const pt of series) {
+      if (!achieved && pt.ret >= targetReturn) {
+        achieved = true;
+        addEvent(pt.dateKey, 'target',
+          `🎯 목표 수익률 ${targetReturn}% 달성!`,
+          '#F59E0B');
+      }
+    }
+  }
+
+  // ── 어노테이션 객체 생성 (같은 날짜 병합) ─────────────────────
+  const priority = { target: 5, drop: 4, surge: 3, withdrawal: 2, deposit_dilution: 1 };
+  const annotations = [];
+
+  for (const [dateKey, events] of Object.entries(eventsByDate)) {
+    const pt = series.find(p => p.dateKey === dateKey);
+    if (!pt) continue;
+
+    const sorted = [...events].sort((a, b) => (priority[b.type] || 0) - (priority[a.type] || 0));
+    const dominantColor = sorted[0].color;
+    const lines = sorted.map(e => e.comment);
+
+    annotations.push({
+      type: 'point',
+      xValue: dateKey,
+      yValue: pt.ret,
+      backgroundColor: dominantColor + 'CC',
+      borderColor: dominantColor,
+      borderWidth: 2,
+      radius: 7,
+      label: {
+        display: true,
+        content: lines,
+        position: 'top',
+        font: { family: 'Pretendard, sans-serif', size: 11 },
+        color: '#fff',
+        backgroundColor: dominantColor + 'EE',
+        borderRadius: 5,
+        padding: { x: 8, y: 5 },
+        yAdjust: -15,
+      },
+    });
+  }
+
+  return annotations;
+}
+
 function renderLineChart() {
   const brokerId = state.activeTab;
   const period = state.activePeriod;
@@ -2319,6 +2472,23 @@ function renderLineChart() {
   const yScaleMin = Math.floor((yMin - yPad) * 10) / 10;
   const yScaleMax = Math.ceil((yMax + yPad) * 10) / 10;
 
+  // 어노테이션 생성 (단일 브로커 탭에서만)
+  let chartAnnotations = [];
+  if (brokerId !== 'all') {
+    const broker = state.data.brokers.find(b => b.id === brokerId);
+    const annoBals = state.data.balance_records.filter(r => r.broker_id === brokerId);
+    const annoCfs  = state.data.cashflow_records.filter(r => r.broker_id === brokerId);
+    const annoTarget = broker?.target_return > 0 ? broker.target_return : null;
+    // 기간 필터 적용
+    if (annoBals.length > 0) {
+      const cutDate = getPeriodCutoff(period);
+      const filteredBals = cutDate
+        ? annoBals.filter(r => new Date(r.recorded_at) >= cutDate)
+        : annoBals;
+      chartAnnotations = generateChartAnnotations(filteredBals, annoCfs, annoTarget);
+    }
+  }
+
   state.lineChart = new Chart(ctx, {
     type: 'line',
     data: { datasets },
@@ -2375,6 +2545,9 @@ function renderLineChart() {
           display: datasets.length > 1,
           position: 'top',
           labels: { color: textColor, boxWidth: 12, font: { family: 'Pretendard', size: 11 } }
+        },
+        annotation: {
+          annotations: chartAnnotations,
         },
         tooltip: {
           callbacks: {
