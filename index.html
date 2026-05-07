@@ -2387,6 +2387,13 @@ function renderLineChart() {
             font: { family: 'Pretendard', size: 11 },
             callback: v => v === 0 ? '0%' : ((v >= 0 ? '+' : '') + v.toFixed(1) + '%')
           }
+        }
+      }
+    }
+  });
+}
+
+function renderPieChart() {
   const isAll = state.activeTab === 'all';
   $('pie-chart-card').classList.toggle('hidden', !isAll);
   // 개별 증권사 탭: 그래프 100% 폭
