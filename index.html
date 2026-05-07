@@ -891,6 +891,7 @@
             <span>잔액 기록을 추가하면 차트가 표시됩니다.</span>
           </div>
         </div>
+        <div style="font-size:0.75rem;color:var(--text-muted);text-align:right;margin-top:4px;">시작: <span id="chart-start-date">—</span></div>
       </div>
       <!-- Pie chart (전체 탭에서만) -->
       <div class="card chart-card" id="pie-chart-card">
@@ -2203,6 +2204,11 @@ function renderLineChart() {
   // 전체 날짜 범위 생성 (매일 빠짐없이)
   const sortedKeys = Array.from(allDateKeys).sort();
   const dateRange = buildDateRange(sortedKeys[0], sortedKeys[sortedKeys.length - 1]);
+  
+  // 시작 날짜 표시
+  const startDate = new Date(sortedKeys[0] + 'T00:00:00');
+  const startDateStr = startDate.toLocaleDateString('ko-KR', { year: 'numeric', month: 'short', day: 'numeric' });
+  $('chart-start-date').textContent = startDateStr;
 
   // Y축 min/max 계산 (y2 동기화용)
   let allReturnVals = [];
