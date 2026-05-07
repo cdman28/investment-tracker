@@ -2235,7 +2235,7 @@ function renderLineChart() {
       pointRadius: dateRange.length <= 31 ? 3 : (dateRange.length <= 90 ? 2 : 0),
       pointHoverRadius: 5,
       fill: brokerId !== 'all',
-      spanGaps: false,  // 기록 없는 날 선 연결 안 함
+      spanGaps: true,  // 기록 없는 날(null) 건너뛰고 앞뒤 포인트 직선 연결
     });
 
     // 목표 수익률 수평선
