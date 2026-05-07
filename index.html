@@ -343,6 +343,38 @@
       height: 240px;
     }
     .chart-wrapper canvas { width: 100% !important; }
+    /* 어노테이션 커스텀 툴팁 */
+    .anno-tooltip {
+      position: absolute;
+      pointer-events: none;
+      z-index: 20;
+      background: var(--bg-surface);
+      border: 1.5px solid var(--border-strong);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-md);
+      padding: 10px 13px;
+      min-width: 160px;
+      max-width: 260px;
+      display: none;
+    }
+    .anno-tooltip.visible { display: block; }
+    .anno-tooltip-date {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+    .anno-tooltip-line {
+      font-size: 0.78rem;
+      color: var(--text-primary);
+      line-height: 1.55;
+      padding: 2px 0;
+    }
+    .anno-tooltip-line + .anno-tooltip-line {
+      border-top: 1px solid var(--border);
+      margin-top: 4px;
+      padding-top: 4px;
+    }
     .pie-wrapper {
       position: relative;
       height: 200px;
@@ -915,6 +947,7 @@
         </div>
         <div class="chart-wrapper">
           <canvas id="line-chart"></canvas>
+          <div id="anno-tooltip" class="anno-tooltip"></div>
           <div id="line-chart-empty" class="chart-empty hidden">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18 9 11.25l4.306 4.306a11.95 11.95 0 0 1 5.814-5.518l2.74-1.22m0 0-5.94-2.281m5.94 2.28-2.28 5.941"/></svg>
             <span>잔액 기록을 추가하면 차트가 표시됩니다.</span>
@@ -2399,17 +2432,12 @@ function generateChartAnnotations(balanceRecords, cashflowRecords, targetReturn 
       borderColor: dominantColor,
       borderWidth: 2,
       radius: 7,
-      label: {
-        display: true,
-        content: lines,
-        position: 'top',
-        font: { family: 'Pretendard, sans-serif', size: 11 },
-        color: '#fff',
-        backgroundColor: dominantColor + 'EE',
-        borderRadius: 5,
-        padding: { x: 8, y: 5 },
-        yAdjust: -15,
-      },
+      hoverRadius: 10,
+      // 커스텀 툴팁용 메타데이터 (label 비활성, hover 시 DOM 툴팁 사용)
+      _tooltipLines: lines,
+      _tooltipDate: dateKey,
+      _tooltipColor: dominantColor,
+      label: { display: false },
     });
   }
 
@@ -2604,6 +2632,46 @@ function renderLineChart() {
           labels: { color: textColor, boxWidth: 12, font: { family: 'Pretendard', size: 11 } }
         },
         annotation: {
+          enter(ctx) {
+            const anno = ctx.element;
+            if (!anno._tooltipLines) return;
+            const tip = $('anno-tooltip');
+            const wrapper = tip.parentElement;
+            const wRect = wrapper.getBoundingClientRect();
+            const chart = ctx.chart;
+            // 어노테이션 점의 화면 좌표 계산
+            const xPx = chart.scales.x.getPixelForValue(new Date(anno.options.xValue).getTime());
+            const yPx = chart.scales.y.getPixelForValue(anno.options.yValue);
+            const canvasRect = chart.canvas.getBoundingClientRect();
+            // wrapper 기준 상대 좌표
+            const left = canvasRect.left - wRect.left + xPx;
+            const top  = canvasRect.top  - wRect.top  + yPx;
+            // 콘텐츠 렌더링
+            const dateStr = anno.options._tooltipDate || '';
+            const color   = anno.options._tooltipColor || 'var(--accent)';
+            let html = `<div class="anno-tooltip-date" style="color:${color}">📌 ${dateStr}</div>`;
+            for (const line of anno.options._tooltipLines) {
+              html += `<div class="anno-tooltip-line">${line}</div>`;
+            }
+            tip.innerHTML = html;
+            tip.style.borderColor = color;
+            tip.classList.add('visible');
+            // 위치 결정 (오른쪽/왼쪽 범위 밖 늤어나오지 않게)
+            const tipW = 264;
+            const tipH = 80 + anno.options._tooltipLines.length * 22;
+            let lx = left + 12;
+            let ly = top - tipH - 10;
+            if (lx + tipW > wRect.width) lx = left - tipW - 12;
+            if (ly < 0) ly = top + 18;
+            tip.style.left = lx + 'px';
+            tip.style.top  = ly + 'px';
+            chart.canvas.style.cursor = 'pointer';
+          },
+          leave(ctx) {
+            const tip = $('anno-tooltip');
+            tip.classList.remove('visible');
+            ctx.chart.canvas.style.cursor = '';
+          },
           annotations: chartAnnotations,
         },
         tooltip: {
