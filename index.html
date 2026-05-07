@@ -183,6 +183,15 @@
       border-radius: 50%;
       flex-shrink: 0;
     }
+    .record-color-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 6px;
+      flex-shrink: 0;
+      vertical-align: middle;
+    }
     .tab-add-btn {
       display: flex;
       align-items: center;
@@ -1874,10 +1883,12 @@ function renderTables() {
   } else {
     bals.forEach(r => {
       const rPct = calcReturnAtTime(r.broker_id, r.balance, r.recorded_at);
+      const broker = state.data.brokers.find(b => b.id === r.broker_id);
+      const brokerColor = broker?.color || '#999';
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td class="primary num">${formatDt(r.recorded_at)}</td>
-        <td class="num">${formatMoney(r.balance)}</td>
+        <td class="num"><span class="record-color-dot" style="background:${brokerColor}"></span>${formatMoney(r.balance)}</td>
         <td class="num ${rPct !== null ? (rPct >= 0 ? 'positive' : 'negative') : ''}">${rPct !== null ? formatPct(rPct) : '—'}</td>
         <td style="color:var(--text-muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(r.memo || '—')}</td>
         <td>
@@ -1902,11 +1913,13 @@ function renderTables() {
     tbodyC.innerHTML = '<tr class="empty-row"><td colspan="5">기록이 없습니다.</td></tr>';
   } else {
     cfs.forEach(r => {
+      const broker = state.data.brokers.find(b => b.id === r.broker_id);
+      const brokerColor = broker?.color || '#999';
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td class="primary num">${formatDt(r.transacted_at)}</td>
         <td><span class="badge badge-${r.type}">${r.type === 'deposit' ? '입금' : '출금'}</span></td>
-        <td class="num ${r.type === 'deposit' ? 'positive' : 'negative'}">${formatMoney(r.amount)}</td>
+        <td class="num ${r.type === 'deposit' ? 'positive' : 'negative'}"><span class="record-color-dot" style="background:${brokerColor}"></span>${formatMoney(r.amount)}</td>
         <td style="color:var(--text-muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(r.memo || '—')}</td>
         <td>
           <div class="action-btns">
