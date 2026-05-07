@@ -265,7 +265,7 @@
       color: var(--text-muted);
       margin-top: 4px;
     }
-    .kpi-card.aux .kpi-value { font-size: 1.1rem; }
+    .kpi-card.aux .kpi-value { font-size: 1.25rem; }
     .positive { color: var(--color-success) !important; }
     .negative { color: var(--color-error) !important; }
     .neutral { color: var(--text-secondary) !important; }
@@ -696,6 +696,8 @@
     @media (max-width: 767px) {
       .kpi-grid { grid-template-columns: repeat(2, 1fr); }
       .kpi-aux-grid { grid-template-columns: repeat(2, 1fr); }
+      .kpi-value { font-size: 1.1rem; }
+      .kpi-card.aux .kpi-value { font-size: 1.0rem; }
       .chart-grid { grid-template-columns: 1fr; }
       .main { padding: 14px; }
       .form-row { flex-direction: column; }
@@ -2185,6 +2187,9 @@ function renderLineChart() {
   const sortedKeys = Array.from(allDateKeys).sort();
   const dateRange = buildDateRange(sortedKeys[0], sortedKeys[sortedKeys.length - 1]);
 
+  // Y축 min/max 계산 (y2 동기화용)
+  let allReturnVals = [];
+
   for (const { broker: b, balMap } of brokerMaps) {
     // 날짜별 수익률 계산 (기록 없는 날 = null → 직전값 carry-forward)
     let lastReturn = null;
@@ -2203,6 +2208,8 @@ function renderLineChart() {
 
     const validPoints = returnPoints.filter(p => p.y !== null);
     if (validPoints.length === 0) continue;
+    validPoints.forEach(p => allReturnVals.push(p.y));
+    if (b.target_return > 0) allReturnVals.push(b.target_return);
 
     datasets.push({
       label: b.name,
@@ -2234,6 +2241,13 @@ function renderLineChart() {
   }
 
   const xFmt = getXAxisFormat(period);
+
+  // Y축 범위 계산
+  const yMin = allReturnVals.length ? Math.min(...allReturnVals) : -10;
+  const yMax = allReturnVals.length ? Math.max(...allReturnVals) : 10;
+  const yPad = Math.max((yMax - yMin) * 0.12, 0.5);
+  const yScaleMin = Math.floor((yMin - yPad) * 10) / 10;
+  const yScaleMax = Math.ceil((yMax + yPad) * 10) / 10;
 
   state.lineChart = new Chart(ctx, {
     type: 'line',
@@ -2273,6 +2287,8 @@ function renderLineChart() {
         },
         y: {
           position: 'left',
+          min: yScaleMin,
+          max: yScaleMax,
           grid: { color: gridColor },
           ticks: {
             color: textColor,
@@ -2282,6 +2298,8 @@ function renderLineChart() {
         },
         y2: {
           position: 'right',
+          min: yScaleMin,
+          max: yScaleMax,
           grid: { drawOnChartArea: false },
           ticks: {
             color: textColor,
