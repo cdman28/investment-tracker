@@ -1268,6 +1268,13 @@ function formatMoneySign(n) {
   if (n < 0) return '-' + abs + '원';
   return abs + '원';
 }
+function colorToEmoji(hex) {
+  const map = {
+    '#0d9488': '🩵', '#3b82f6': '🔵', '#f59e0b': '🟡',
+    '#ef4444': '🔴', '#8b5cf6': '🟣', '#ec4899': '🩷', '#10b981': '🟢',
+  };
+  return map[(hex || '').toLowerCase()] || '⚪';
+}
 function formatPct(n) {
   if (n === null || n === undefined || isNaN(n)) return '—';
   const sign = n >= 0 ? '+' : '';
@@ -2329,7 +2336,7 @@ function formatPeriodDiff(isoA, isoB) {
  * @param {number|null} targetReturn - 목표 수익률(%)
  * @returns {Array} chartjs-plugin-annotation 의 point annotation 배열
  */
-function generateChartAnnotations(balanceRecords, cashflowRecords, targetReturn = null) {
+function generateChartAnnotations(balanceRecords, cashflowRecords, targetReturn = null, brokerName = '', brokerColor = '') {
   const bals = [...balanceRecords].sort((a, b) => new Date(a.recorded_at) - new Date(b.recorded_at));
   const cfs  = [...cashflowRecords].sort((a, b) => new Date(a.transacted_at) - new Date(b.transacted_at));
   if (bals.length === 0) return [];
@@ -2435,7 +2442,8 @@ function generateChartAnnotations(balanceRecords, cashflowRecords, targetReturn 
 
     const sorted = [...events].sort((a, b) => (priority[b.type] || 0) - (priority[a.type] || 0));
     const dominantColor = sorted[0].color;
-    const lines = sorted.map(e => e.comment);
+    const prefix = brokerName ? `${colorToEmoji(brokerColor)} ${brokerName} · ` : '';
+    const lines = sorted.map(e => prefix + e.comment);
 
     annotations.push({
       type: 'point',
@@ -2572,7 +2580,7 @@ function renderLineChart() {
     const annoCfs  = state.data.cashflow_records.filter(r => r.broker_id === brokerId);
     const annoTarget = broker?.target_return > 0 ? broker.target_return : null;
     if (annoBals.length > 0) {
-      chartAnnotations = generateChartAnnotations(annoBals, annoCfs, annoTarget);
+      chartAnnotations = generateChartAnnotations(annoBals, annoCfs, annoTarget, broker?.name || '', broker?.color || '');
       // 현재 뷰 기간 밖의 어노테이션은 차트에 표시 안 되므로 별도 필터 불필요
     }
   } else {
@@ -2582,15 +2590,20 @@ function renderLineChart() {
       const annoCfs  = state.data.cashflow_records.filter(r => r.broker_id === b.id);
       const annoTarget = b.target_return > 0 ? b.target_return : null;
       if (annoBals.length === 0) continue;
-      const annos = generateChartAnnotations(annoBals, annoCfs, annoTarget);
+      const annos = generateChartAnnotations(annoBals, annoCfs, annoTarget, b.name || '', b.color || '');
       chartAnnotations.push(...annos);
     }
   }
 
   // 날짜별 어노테이션 빠른 조회 맵 (툴팁 afterBody 용)
+  // 날짜가 겹치는 어노테이션은 _tooltipLines 병합 (전체 탭에서 복수 증권사 이벤트 누락 방지)
   const annoMap = {};
   for (const anno of chartAnnotations) {
-    annoMap[anno.xValue] = anno; // xValue: 'YYYY-MM-DD'
+    if (annoMap[anno.xValue]) {
+      annoMap[anno.xValue]._tooltipLines.push(...anno._tooltipLines);
+    } else {
+      annoMap[anno.xValue] = { ...anno, _tooltipLines: [...anno._tooltipLines] };
+    }
   }
 
   state.lineChart = new Chart(ctx, {
