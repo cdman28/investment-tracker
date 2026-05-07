@@ -2587,6 +2587,12 @@ function renderLineChart() {
     }
   }
 
+  // 날짜별 어노테이션 빠른 조회 맵 (툴팁 afterBody 용)
+  const annoMap = {};
+  for (const anno of chartAnnotations) {
+    annoMap[anno.xValue] = anno; // xValue: 'YYYY-MM-DD'
+  }
+
   state.lineChart = new Chart(ctx, {
     type: 'line',
     data: { datasets },
@@ -2646,46 +2652,6 @@ function renderLineChart() {
           labels: { color: textColor, boxWidth: 12, font: { family: 'Pretendard', size: 11 } }
         },
         annotation: {
-          enter(ctx) {
-            const anno = ctx.element;
-            if (!anno.options._tooltipLines) return;
-            const tip = $('anno-tooltip');
-            const wrapper = tip.parentElement;
-            const wRect = wrapper.getBoundingClientRect();
-            const chart = ctx.chart;
-            // 어노테이션 점의 화면 좌표 계산
-            const xPx = chart.scales.x.getPixelForValue(new Date(anno.options.xValue).getTime());
-            const yPx = chart.scales.y.getPixelForValue(anno.options.yValue);
-            const canvasRect = chart.canvas.getBoundingClientRect();
-            // wrapper 기준 상대 좌표
-            const left = canvasRect.left - wRect.left + xPx;
-            const top  = canvasRect.top  - wRect.top  + yPx;
-            // 콘텐츠 렌더링
-            const dateStr = anno.options._tooltipDate || '';
-            const color   = anno.options._tooltipColor || 'var(--accent)';
-            let html = `<div class="anno-tooltip-date" style="color:${color}">📌 ${dateStr}</div>`;
-            for (const line of anno.options._tooltipLines) {
-              html += `<div class="anno-tooltip-line">${line}</div>`;
-            }
-            tip.innerHTML = html;
-            tip.style.borderColor = color;
-            tip.classList.add('visible');
-            // 위치 결정 (오른쪽/왼쪽 범위 밖 늤어나오지 않게)
-            const tipW = 264;
-            const tipH = 80 + anno.options._tooltipLines.length * 22;
-            let lx = left + 12;
-            let ly = top - tipH - 10;
-            if (lx + tipW > wRect.width) lx = left - tipW - 12;
-            if (ly < 0) ly = top + 18;
-            tip.style.left = lx + 'px';
-            tip.style.top  = ly + 'px';
-            chart.canvas.style.cursor = 'pointer';
-          },
-          leave(ctx) {
-            const tip = $('anno-tooltip');
-            tip.classList.remove('visible');
-            ctx.chart.canvas.style.cursor = '';
-          },
           annotations: chartAnnotations,
         },
         tooltip: {
@@ -2696,7 +2662,16 @@ function renderLineChart() {
               const sign = v >= 0 ? '+' : '';
               const absF = Math.abs(v).toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
               return `${ctx.dataset.label}: ${sign}${v < 0 ? '-' : ''}${absF}%`;
-            }
+            },
+            afterBody: (items) => {
+              if (!items.length) return [];
+              const x = items[0].parsed.x;
+              const d = new Date(x);
+              const dk = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+              const anno = annoMap[dk];
+              if (!anno || !anno._tooltipLines) return [];
+              return ['─────────────', ...anno._tooltipLines];
+            },
           }
         }
       },
