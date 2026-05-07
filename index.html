@@ -1664,8 +1664,8 @@ function setKPI(invested, balance, pnl, returnPct, annualReturn, annualReturnDel
   annualDeltaEl.textContent = '';
   annualDeltaEl.className = 'kpi-annual-delta num';
   if (annualReturnDelta !== null) {
-    const sign = annualReturnDelta >= 0 ? '+' : '';
-    annualDeltaEl.textContent = `${sign}${annualReturnDelta.toFixed(2)}%p`;
+    const emoji = annualReturnDelta >= 0 ? '📈' : '📉';
+    annualDeltaEl.textContent = `(${emoji} ${Math.abs(annualReturnDelta).toFixed(2)}%p)`;
     applyColorClass(annualDeltaEl, annualReturnDelta);
   }
 
