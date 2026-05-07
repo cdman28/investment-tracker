@@ -1370,6 +1370,10 @@ $('btn-setup-enter').addEventListener('click', async () => {
   sessionStorage.setItem(SESSION_KEY_PAT, pat);
   sessionStorage.setItem(SESSION_KEY_GIST, gistId);
 
+  // 로컬 스토리지에도 영구 저장 (모바일 바로가기 재실행 시 자동 로그인)
+  localStorage.setItem(SESSION_KEY_PAT, pat);
+  localStorage.setItem(SESSION_KEY_GIST, gistId);
+
   try {
     const loaded = await gistGet();
     if (loaded && loaded.brokers) {
@@ -1394,6 +1398,7 @@ function applyTheme(theme) {
   $('icon-moon').classList.toggle('hidden', theme === 'dark');
   $('icon-sun').classList.toggle('hidden', theme !== 'dark');
   sessionStorage.setItem(SESSION_KEY_THEME, theme);
+  localStorage.setItem(SESSION_KEY_THEME, theme);
 }
 
 $('btn-theme-toggle').addEventListener('click', () => {
@@ -1405,6 +1410,8 @@ $('btn-theme-toggle').addEventListener('click', () => {
 $('btn-logout').addEventListener('click', () => {
   sessionStorage.removeItem(SESSION_KEY_PAT);
   sessionStorage.removeItem(SESSION_KEY_GIST);
+  localStorage.removeItem(SESSION_KEY_PAT);
+  localStorage.removeItem(SESSION_KEY_GIST);
   state.pat = '';
   state.gistId = '';
   showSetup();
@@ -2490,6 +2497,7 @@ function renderAll() {
 function init() {
   // Theme
   const savedTheme = sessionStorage.getItem(SESSION_KEY_THEME)
+    || localStorage.getItem(SESSION_KEY_THEME)
     || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
   applyTheme(savedTheme);
 
@@ -2497,9 +2505,9 @@ function init() {
   setDefaultDatetime('inp-balance-date');
   setDefaultDatetime('inp-cf-date');
 
-  // Auto-resume session
-  const pat = sessionStorage.getItem(SESSION_KEY_PAT);
-  const gistId = sessionStorage.getItem(SESSION_KEY_GIST);
+  // Auto-resume session (sessionStorage 우선, 없으면 localStorage)
+  const pat = sessionStorage.getItem(SESSION_KEY_PAT) || localStorage.getItem(SESSION_KEY_PAT);
+  const gistId = sessionStorage.getItem(SESSION_KEY_GIST) || localStorage.getItem(SESSION_KEY_GIST);
 
   if (pat && gistId) {
     state.pat = pat;
