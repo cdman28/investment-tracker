@@ -1665,7 +1665,7 @@ function setKPI(invested, balance, pnl, returnPct, annualReturn, annualReturnDel
   annualDeltaEl.className = 'kpi-annual-delta num';
   if (annualReturnDelta !== null) {
     const emoji = annualReturnDelta >= 0 ? '▲' : '▼';
-    annualDeltaEl.textContent = `(${emoji} ${Math.abs(annualReturnDelta).toFixed(2)}%p)`;
+    annualDeltaEl.textContent = `(${emoji} ${Math.abs(annualReturnDelta).toFixed(2)}%)`;
     applyColorClass(annualDeltaEl, annualReturnDelta);
   }
 
@@ -2522,20 +2522,27 @@ function renderLineChart() {
   const yScaleMin = Math.floor((yMin - yPad) * 10) / 10;
   const yScaleMax = Math.ceil((yMax + yPad) * 10) / 10;
 
-  // 어노테이션 생성 (단일 브로커 탭에서만)
+  // 어노테이션 생성 — 기존 데이터 포함 전체 소급 적용 (기간 필터 무관)
   let chartAnnotations = [];
   if (brokerId !== 'all') {
+    // 단일 브로커: 해당 브로커의 전체 기록 대상
     const broker = state.data.brokers.find(b => b.id === brokerId);
     const annoBals = state.data.balance_records.filter(r => r.broker_id === brokerId);
     const annoCfs  = state.data.cashflow_records.filter(r => r.broker_id === brokerId);
     const annoTarget = broker?.target_return > 0 ? broker.target_return : null;
-    // 기간 필터 적용
     if (annoBals.length > 0) {
-      const cutDate = getPeriodCutoff(period);
-      const filteredBals = cutDate
-        ? annoBals.filter(r => new Date(r.recorded_at) >= cutDate)
-        : annoBals;
-      chartAnnotations = generateChartAnnotations(filteredBals, annoCfs, annoTarget);
+      chartAnnotations = generateChartAnnotations(annoBals, annoCfs, annoTarget);
+      // 현재 뷰 기간 밖의 어노테이션은 차트에 표시 안 되므로 별도 필터 불필요
+    }
+  } else {
+    // 전체 탭: 브로커별 어노테이션 생성 후 병합
+    for (const b of state.data.brokers) {
+      const annoBals = state.data.balance_records.filter(r => r.broker_id === b.id);
+      const annoCfs  = state.data.cashflow_records.filter(r => r.broker_id === b.id);
+      const annoTarget = b.target_return > 0 ? b.target_return : null;
+      if (annoBals.length === 0) continue;
+      const annos = generateChartAnnotations(annoBals, annoCfs, annoTarget);
+      chartAnnotations.push(...annos);
     }
   }
 
