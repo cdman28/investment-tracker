@@ -1043,8 +1043,8 @@
         </div>
       </div>
       <div class="form-group">
-        <label class="form-label required" for="inp-broker-target">목표 수익률 (%)</label>
-        <input type="number" id="inp-broker-target" placeholder="예: 15" min="0" max="1000" step="0.1" />
+        <label class="form-label" for="inp-broker-target">목표 수익률 (%) <span style="font-size:0.75rem;color:var(--text-secondary);">(선택)</span></label>
+        <input type="number" id="inp-broker-target" placeholder="미입력 시 목표선 없음" min="0" max="1000" step="0.1" />
       </div>
     </div>
     <div class="modal-actions">
@@ -1675,12 +1675,13 @@ function openBrokerModal(broker) {
 $('btn-broker-cancel').addEventListener('click', () => closeModal('modal-broker'));
 $('btn-broker-save').addEventListener('click', async () => {
   const name = $('inp-broker-name').value.trim();
-  const target = parseFloat($('inp-broker-target').value);
   const color = $('inp-broker-color').value;
   const editId = $('broker-edit-id').value;
 
   if (!name) { toast('증권사명을 입력해주세요.', 'error'); return; }
-  if (isNaN(target) || target < 0) { toast('목표 수익률을 올바르게 입력해주세요.', 'error'); return; }
+  const targetRaw = $('inp-broker-target').value.trim();
+  const target = targetRaw === '' ? 0 : parseFloat(targetRaw);
+  if (isNaN(target) || target < 0) { toast('목표 수익률은 0 이상 숫자로 입력해주세요.', 'error'); return; }
 
   const btn = $('btn-broker-save');
   btn.disabled = true;
@@ -2067,7 +2068,7 @@ function getPeriodCutoff(period) {
   return c;
 }
 
-// 브로커별 날짜→최고잔액 맵 (동일 날짜 중 최대값, 기간 필터 적용)
+// 브로커별 날짜→마지막 입력잔액 맵 (동일 날짜 중 가장 나중 입력값, 기간 필터 적용)
 function getBalanceByDate(brokerId, period) {
   const cutoff = getPeriodCutoff(period);
   const records = state.data.balance_records.filter(r => {
@@ -2075,11 +2076,11 @@ function getBalanceByDate(brokerId, period) {
     if (cutoff && new Date(r.recorded_at) < cutoff) return false;
     return true;
   });
-  // 날짜별 최대 잔액
+  // 날짜별 마지막 입력값 (recorded_at 기준 최신)
   const map = new Map();
   for (const r of records) {
     const key = toDateKey(r.recorded_at);
-    if (!map.has(key) || r.balance > map.get(key).balance) {
+    if (!map.has(key) || new Date(r.recorded_at) > new Date(map.get(key).recorded_at)) {
       map.set(key, { balance: r.balance, recorded_at: r.recorded_at });
     }
   }
@@ -2117,11 +2118,11 @@ function calcReturnByDate(brokerId, balance, dateKey) {
 
 // X축 날짜 포맷 (기간별 적절히)
 function getXAxisFormat(period) {
-  if (period === '1M') return { unit: 'day',  displayFormats: { day: 'M/d' }, tooltipFormat: 'yyyy-MM-dd' };
-  if (period === '3M') return { unit: 'day',  displayFormats: { day: 'M/d' }, tooltipFormat: 'yyyy-MM-dd' };
-  if (period === '6M') return { unit: 'week', displayFormats: { week: 'M/d' }, tooltipFormat: 'yyyy-MM-dd' };
-  if (period === '1Y') return { unit: 'month', displayFormats: { month: 'yyyy/MM' }, tooltipFormat: 'yyyy-MM-dd' };
-  return { unit: 'month', displayFormats: { month: 'yyyy/MM' }, tooltipFormat: 'yyyy-MM-dd' };
+  if (period === '1M') return { unit: 'day',   displayFormats: { day: 'M/d' },         tooltipFormat: 'yyyy-MM-dd' };
+  if (period === '3M') return { unit: 'week',  displayFormats: { week: 'M/d' },        tooltipFormat: 'yyyy-MM-dd' };
+  if (period === '6M') return { unit: 'week',  displayFormats: { week: 'M/d' },        tooltipFormat: 'yyyy-MM-dd' };
+  if (period === '1Y') return { unit: 'month', displayFormats: { month: 'M/d' },       tooltipFormat: 'yyyy-MM-dd' };
+  return                      { unit: 'month', displayFormats: { month: 'yyyy/M/d' },  tooltipFormat: 'yyyy-MM-dd' };
 }
 
 // 기간별 maxTicksLimit
