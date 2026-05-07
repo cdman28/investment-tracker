@@ -2625,8 +2625,17 @@ function init() {
       if (loaded && loaded.brokers) state.data = loaded;
       hideSetup();
       renderAll();
-    }).catch(() => {
-      showSetup();
+    }).catch((err) => {
+      // 401/403 인증 오류만 로그인 화면으로 이동
+      // 네트워크 오류, 서버 일시 오류 등은 로그인 상태 유지
+      const isAuthError = err.message.includes('401') || err.message.includes('403');
+      if (isAuthError) {
+        showSetup();
+      } else {
+        hideSetup();
+        renderAll();
+        toast('데이터 로드 실패 (네트워크 오류): 로컬 상태로 표시합니다.', 'error');
+      }
     });
   } else {
     showSetup();
