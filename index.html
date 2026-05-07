@@ -280,6 +280,17 @@
       color: var(--text-muted);
       margin-top: 4px;
     }
+    .kpi-annual-row {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .kpi-annual-delta {
+      font-size: 0.8rem;
+      font-weight: 700;
+      line-height: 1;
+    }
     .kpi-card.aux .kpi-value { font-size: 1.25rem; }
     .positive { color: var(--color-success) !important; }
     .negative { color: var(--color-error) !important; }
@@ -865,8 +876,11 @@
     <div class="kpi-aux-grid">
       <div class="kpi-card aux">
         <div class="kpi-label">연환산 수익률</div>
-        <div class="kpi-value num" id="kpi-annual-val">—</div>
-        <div class="kpi-sub">CAGR</div>
+        <div class="kpi-annual-row">
+          <div class="kpi-value num" id="kpi-annual-val">—</div>
+          <span class="kpi-annual-delta num" id="kpi-annual-delta"></span>
+        </div>
+        <div class="kpi-sub">CAGR · 직전 대비</div>
       </div>
       <div class="kpi-card aux">
         <div class="kpi-label">전일대비 변화</div>
@@ -1491,14 +1505,33 @@ function calcBroker(brokerId) {
   const pnl = latestBalance + totalWithdrawal - totalDeposit;
   const returnPct = totalDeposit > 0 ? (pnl / totalDeposit) * 100 : null;
 
-  // 연환산 수익률 (CAGR)
+  // 연환산 수익률 (CAGR) + 직전 기록 대비 delta
   let annualReturn = null;
+  let annualReturnDelta = null;
   if (returnPct !== null && cfs.length > 0 && bals.length > 0) {
-    const firstCfDate = new Date(cfs.slice().sort((a, b) => new Date(a.transacted_at) - new Date(b.transacted_at))[0].transacted_at);
+    const sortedCfs = cfs.slice().sort((a, b) => new Date(a.transacted_at) - new Date(b.transacted_at));
+    const firstCfDate = new Date(sortedCfs[0].transacted_at);
     const lastBalDate = new Date(bals[bals.length - 1].recorded_at);
     const days = (lastBalDate - firstCfDate) / (1000 * 60 * 60 * 24);
     if (days >= 1) {
       annualReturn = (Math.pow(1 + returnPct / 100, 365 / days) - 1) * 100;
+
+      // 직전 잔고 기록 기준 이전 CAGR 계산
+      if (bals.length >= 2) {
+        const prevBal = bals[bals.length - 2];
+        const prevCutoff = new Date(prevBal.recorded_at);
+        const prevCfs = cfs.filter(r => new Date(r.transacted_at) <= prevCutoff);
+        const prevDeposit    = prevCfs.filter(r => r.type === 'deposit').reduce((s, r) => s + r.amount, 0);
+        const prevWithdrawal = prevCfs.filter(r => r.type === 'withdrawal').reduce((s, r) => s + r.amount, 0);
+        if (prevDeposit > 0) {
+          const prevReturnPct = (prevBal.balance + prevWithdrawal - prevDeposit) / prevDeposit * 100;
+          const prevDays = (new Date(prevBal.recorded_at) - firstCfDate) / (1000 * 60 * 60 * 24);
+          if (prevDays >= 1) {
+            const prevAnnualReturn = (Math.pow(1 + prevReturnPct / 100, 365 / prevDays) - 1) * 100;
+            annualReturnDelta = annualReturn - prevAnnualReturn;
+          }
+        }
+      }
     }
   }
 
@@ -1531,7 +1564,7 @@ function calcBroker(brokerId) {
   const weekChange = weekBals.length >= 2 ? weekBals[weekBals.length-1].balance - weekBals[0].balance : (weekBals.length === 1 ? 0 : null);
   const monthChange = monthBals.length >= 2 ? monthBals[monthBals.length-1].balance - monthBals[0].balance : (monthBals.length === 1 ? 0 : null);
 
-  return { totalDeposit, totalWithdrawal, latestBalance, pnl, returnPct, annualReturn, dayChange, weekChange, monthChange, bals };
+  return { totalDeposit, totalWithdrawal, latestBalance, pnl, returnPct, annualReturn, annualReturnDelta, dayChange, weekChange, monthChange, bals };
 }
 
 function calcAll() {
@@ -1571,6 +1604,13 @@ function calcAll() {
   }
   if (!anyDay) dayChange = null;
 
+  // 연환산 수익률 delta: 브로커별 delta 평균
+  let annualReturnDelta = null;
+  const deltaVals = brokerCalcs.map(bc => bc.calc.annualReturnDelta).filter(v => v !== null);
+  if (deltaVals.length > 0) {
+    annualReturnDelta = deltaVals.reduce((s, v) => s + v, 0) / deltaVals.length;
+  }
+
   // Week/month change: sum of each broker's change
   let weekChange = null, monthChange = null;
   let anyWeek = false, anyMonth = false;
@@ -1581,7 +1621,7 @@ function calcAll() {
   if (!anyWeek) weekChange = null;
   if (!anyMonth) monthChange = null;
 
-  return { totalDeposit, totalWithdrawal, totalBalance, pnl, returnPct, annualReturn, dayChange, weekChange, monthChange, brokerCalcs };
+  return { totalDeposit, totalWithdrawal, totalBalance, pnl, returnPct, annualReturn, annualReturnDelta, dayChange, weekChange, monthChange, brokerCalcs };
 }
 
 /* =====================================================
@@ -1590,19 +1630,20 @@ function calcAll() {
 function renderKPI() {
   if (state.activeTab === 'all') {
     const c = calcAll();
-    setKPI(c.totalDeposit, c.totalBalance, c.pnl, c.returnPct, c.annualReturn, c.dayChange, c.weekChange, c.monthChange);
+    setKPI(c.totalDeposit, c.totalBalance, c.pnl, c.returnPct, c.annualReturn, c.annualReturnDelta, c.dayChange, c.weekChange, c.monthChange);
   } else {
     const c = calcBroker(state.activeTab);
-    setKPI(c.totalDeposit, c.latestBalance, c.pnl, c.returnPct, c.annualReturn, c.dayChange, c.weekChange, c.monthChange);
+    setKPI(c.totalDeposit, c.latestBalance, c.pnl, c.returnPct, c.annualReturn, c.annualReturnDelta, c.dayChange, c.weekChange, c.monthChange);
   }
 }
 
-function setKPI(invested, balance, pnl, returnPct, annualReturn, dayChange, weekChange, monthChange) {
+function setKPI(invested, balance, pnl, returnPct, annualReturn, annualReturnDelta, dayChange, weekChange, monthChange) {
   const investedEl = $('kpi-invested-val');
   const balanceEl = $('kpi-balance-val');
   const pnlEl = $('kpi-pnl-val');
   const returnEl = $('kpi-return-val');
   const annualEl = $('kpi-annual-val');
+  const annualDeltaEl = $('kpi-annual-delta');
   const dayEl = $('kpi-day-val');
   const weekEl = $('kpi-week-val');
   const monthEl = $('kpi-month-val');
@@ -1618,6 +1659,15 @@ function setKPI(invested, balance, pnl, returnPct, annualReturn, dayChange, week
 
   annualEl.textContent = annualReturn !== null ? formatPct(annualReturn) : '—';
   if (annualReturn !== null) applyColorClass(annualEl, annualReturn);
+
+  // 연환산 수익률 delta 표시
+  annualDeltaEl.textContent = '';
+  annualDeltaEl.className = 'kpi-annual-delta num';
+  if (annualReturnDelta !== null) {
+    const sign = annualReturnDelta >= 0 ? '+' : '';
+    annualDeltaEl.textContent = `${sign}${annualReturnDelta.toFixed(2)}%p`;
+    applyColorClass(annualDeltaEl, annualReturnDelta);
+  }
 
   dayEl.textContent = dayChange !== null ? formatMoneySign(dayChange) : '—';
   if (dayChange !== null) applyColorClass(dayEl, dayChange);
