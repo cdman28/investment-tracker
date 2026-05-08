@@ -759,6 +759,13 @@
       .kpi-aux-grid { grid-template-columns: repeat(2, 1fr); }
       .kpi-value { font-size: 1.1rem; }
       .kpi-card.aux .kpi-value { font-size: 1.0rem; }
+      #kpi-invested .kpi-label,
+      #kpi-balance .kpi-label,
+      #kpi-pnl .kpi-label {
+        font-size: clamp(0.6rem, 2.8vw, 0.68rem);
+        white-space: nowrap;
+        letter-spacing: 0;
+      }
       .chart-grid { grid-template-columns: 1fr; }
       .main { padding: 14px; }
       .form-row { flex-direction: column; }
