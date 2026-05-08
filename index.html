@@ -292,6 +292,13 @@
       line-height: 1;
     }
     .kpi-card.aux .kpi-value { font-size: 1.25rem; }
+    .kpi-cf-note {
+      font-size: 0.7rem;
+      color: #F59E0B;
+      margin-top: 4px;
+      font-weight: 600;
+      line-height: 1.4;
+    }
     .positive { color: var(--color-success) !important; }
     .negative { color: var(--color-error) !important; }
     .neutral { color: var(--text-secondary) !important; }
@@ -757,14 +764,16 @@
     @media (max-width: 767px) {
       .kpi-grid { grid-template-columns: repeat(2, 1fr); }
       .kpi-aux-grid { grid-template-columns: repeat(2, 1fr); }
+      .kpi-card { padding: 10px 10px; }
       .kpi-value { font-size: 1.1rem; }
       .kpi-card.aux .kpi-value { font-size: 1.0rem; }
-      #kpi-invested .kpi-label,
-      #kpi-balance .kpi-label,
-      #kpi-pnl .kpi-label {
-        font-size: clamp(0.6rem, 2.8vw, 0.68rem);
+      #kpi-invested .kpi-value,
+      #kpi-balance .kpi-value,
+      #kpi-pnl .kpi-value {
+        font-size: clamp(0.72rem, 3.8vw, 1.0rem);
         white-space: nowrap;
-        letter-spacing: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
       .chart-grid { grid-template-columns: 1fr; }
       .main { padding: 14px; }
@@ -930,11 +939,13 @@
         <div class="kpi-label" style="color:#3B82F6;">이번 주 변화</div>
         <div class="kpi-value num" id="kpi-week-val">—</div>
         <div class="kpi-sub">이번 주 첫 기록 대비</div>
+        <div class="kpi-cf-note hidden" id="kpi-week-cf-note"></div>
       </div>
       <div class="kpi-card aux">
         <div class="kpi-label" style="color:#8B5CF6;">이번 달 변화</div>
         <div class="kpi-value num" id="kpi-month-val">—</div>
         <div class="kpi-sub">이번 달 첫 기록 대비</div>
+        <div class="kpi-cf-note hidden" id="kpi-month-cf-note"></div>
       </div>
     </div>
 
@@ -1624,7 +1635,12 @@ function calcBroker(brokerId) {
   const weekChange = weekBals.length >= 2 ? weekBals[weekBals.length-1].balance - weekBals[0].balance : (weekBals.length === 1 ? 0 : null);
   const monthChange = monthBals.length >= 2 ? monthBals[monthBals.length-1].balance - monthBals[0].balance : (monthBals.length === 1 ? 0 : null);
 
-  return { totalDeposit, totalWithdrawal, latestBalance, pnl, returnPct, annualReturn, annualReturnDelta, dayChange, weekChange, monthChange, bals };
+  const weekCashflow = cfs.filter(r => new Date(r.transacted_at) >= weekStart)
+    .reduce((s,r) => s + (r.type === 'deposit' ? r.amount : -r.amount), 0);
+  const monthCashflow = cfs.filter(r => new Date(r.transacted_at) >= monthStart)
+    .reduce((s,r) => s + (r.type === 'deposit' ? r.amount : -r.amount), 0);
+
+  return { totalDeposit, totalWithdrawal, latestBalance, pnl, returnPct, annualReturn, annualReturnDelta, dayChange, weekChange, monthChange, weekCashflow, monthCashflow, bals };
 }
 
 function calcAll() {
@@ -1681,7 +1697,13 @@ function calcAll() {
   if (!anyWeek) weekChange = null;
   if (!anyMonth) monthChange = null;
 
-  return { totalDeposit, totalWithdrawal, totalBalance, pnl, returnPct, annualReturn, annualReturnDelta, dayChange, weekChange, monthChange, brokerCalcs };
+  let weekCashflow = 0, monthCashflow = 0;
+  for (const bc of brokerCalcs) {
+    weekCashflow += bc.calc.weekCashflow ?? 0;
+    monthCashflow += bc.calc.monthCashflow ?? 0;
+  }
+
+  return { totalDeposit, totalWithdrawal, totalBalance, pnl, returnPct, annualReturn, annualReturnDelta, dayChange, weekChange, monthChange, weekCashflow, monthCashflow, brokerCalcs };
 }
 
 /* =====================================================
@@ -1690,14 +1712,14 @@ function calcAll() {
 function renderKPI() {
   if (state.activeTab === 'all') {
     const c = calcAll();
-    setKPI(c.totalDeposit, c.totalBalance, c.pnl, c.returnPct, c.annualReturn, c.annualReturnDelta, c.dayChange, c.weekChange, c.monthChange);
+    setKPI(c.totalDeposit, c.totalBalance, c.pnl, c.returnPct, c.annualReturn, c.annualReturnDelta, c.dayChange, c.weekChange, c.monthChange, c.weekCashflow, c.monthCashflow);
   } else {
     const c = calcBroker(state.activeTab);
-    setKPI(c.totalDeposit, c.latestBalance, c.pnl, c.returnPct, c.annualReturn, c.annualReturnDelta, c.dayChange, c.weekChange, c.monthChange);
+    setKPI(c.totalDeposit, c.latestBalance, c.pnl, c.returnPct, c.annualReturn, c.annualReturnDelta, c.dayChange, c.weekChange, c.monthChange, c.weekCashflow, c.monthCashflow);
   }
 }
 
-function setKPI(invested, balance, pnl, returnPct, annualReturn, annualReturnDelta, dayChange, weekChange, monthChange) {
+function setKPI(invested, balance, pnl, returnPct, annualReturn, annualReturnDelta, dayChange, weekChange, monthChange, weekCashflow, monthCashflow) {
   const investedEl = $('kpi-invested-val');
   const balanceEl = $('kpi-balance-val');
   const pnlEl = $('kpi-pnl-val');
@@ -1737,6 +1759,25 @@ function setKPI(invested, balance, pnl, returnPct, annualReturn, annualReturnDel
 
   monthEl.textContent = monthChange !== null ? formatMoneySign(monthChange) : '—';
   if (monthChange !== null) applyColorClass(monthEl, monthChange);
+
+  const weekCfNote = $('kpi-week-cf-note');
+  const monthCfNote = $('kpi-month-cf-note');
+  if (weekChange !== null && weekCashflow && weekCashflow !== 0) {
+    const sign = weekCashflow > 0 ? '+' : '';
+    const label = weekCashflow > 0 ? '입금' : '출금';
+    weekCfNote.textContent = `※ ${label} ${sign}${formatMoney(Math.abs(weekCashflow))} 포함`;
+    weekCfNote.classList.remove('hidden');
+  } else {
+    weekCfNote.classList.add('hidden');
+  }
+  if (monthChange !== null && monthCashflow && monthCashflow !== 0) {
+    const sign = monthCashflow > 0 ? '+' : '';
+    const label = monthCashflow > 0 ? '입금' : '출금';
+    monthCfNote.textContent = `※ ${label} ${sign}${formatMoney(Math.abs(monthCashflow))} 포함`;
+    monthCfNote.classList.remove('hidden');
+  } else {
+    monthCfNote.classList.add('hidden');
+  }
 }
 
 /* =====================================================
