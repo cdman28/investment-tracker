@@ -1573,9 +1573,10 @@ function calcBroker(brokerId) {
     const lastBalDate = new Date(bals[bals.length - 1].recorded_at);
     const days = (lastBalDate - firstCfDate) / (1000 * 60 * 60 * 24);
     if (days >= 1) {
-      annualReturn = (Math.pow(1 + returnPct / 100, 365 / days) - 1) * 100;
+      // 단순 연환산: 짧은 기간의 복리 지수승 폭발 방지
+      annualReturn = returnPct * (365 / days);
 
-      // 직전 잔고 기록 기준 이전 CAGR 계산 (같은 날 입력값 제외, 이전 날의 가장 최근 기록)
+      // 직전 잔고 기록 기준 이전 연환산 계산 (같은 날 입력값 제외, 이전 날의 가장 최근 기록)
       if (bals.length >= 2) {
         const latestDay = new Date(bals[bals.length - 1].recorded_at);
         latestDay.setHours(0, 0, 0, 0);
@@ -1597,7 +1598,7 @@ function calcBroker(brokerId) {
             const prevReturnPct = (prevBal.balance + prevWithdrawal - prevDeposit) / prevDeposit * 100;
             const prevDays = (new Date(prevBal.recorded_at) - firstCfDate) / (1000 * 60 * 60 * 24);
             if (prevDays >= 1) {
-              const prevAnnualReturn = (Math.pow(1 + prevReturnPct / 100, 365 / prevDays) - 1) * 100;
+              const prevAnnualReturn = prevReturnPct * (365 / prevDays);
               annualReturnDelta = annualReturn - prevAnnualReturn;
             }
           }
@@ -1667,7 +1668,8 @@ function calcAll() {
       const lastBalDate = new Date(allBals2[allBals2.length - 1].recorded_at);
       const days = (lastBalDate - firstCfDate) / (1000 * 60 * 60 * 24);
       if (days >= 1) {
-        annualReturn = (Math.pow(1 + returnPct / 100, 365 / days) - 1) * 100;
+        // 단순 연환산: 짧은 기간의 복리 지수승 폭발 방지
+        annualReturn = returnPct * (365 / days);
       }
     }
   }
