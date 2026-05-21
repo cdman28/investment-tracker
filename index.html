@@ -408,6 +408,23 @@
       flex-shrink: 0;
     }
     .pie-legend-pct { margin-left: auto; font-weight: 600; color: var(--text-primary); }
+    .manwon-unit-check {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.72rem;
+      font-weight: 500;
+      color: var(--accent);
+      cursor: pointer;
+      margin-left: auto;
+      white-space: nowrap;
+    }
+    .manwon-unit-check input[type="checkbox"] {
+      width: auto;
+      cursor: pointer;
+      accent-color: var(--accent);
+      margin: 0;
+    }
     .chart-empty {
       height: 100%;
       display: flex;
@@ -997,7 +1014,12 @@
       </div>
       <div class="form-row">
         <div class="form-group">
-          <label class="form-label required" for="inp-balance">현재 평가금액 (원)</label>
+          <div style="display:flex;align-items:center;margin-bottom:4px;">
+            <label class="form-label required" for="inp-balance" style="margin-bottom:0;">현재 평가금액 (원)</label>
+            <label class="manwon-unit-check" for="chk-manwon-bal">
+              <input type="checkbox" id="chk-manwon-bal" /> 만원 단위
+            </label>
+          </div>
           <input type="text" id="inp-balance" placeholder="예: 1,500,000" inputmode="numeric" />
         </div>
         <div class="form-group fixed-140">
@@ -1035,7 +1057,12 @@
           </div>
         </div>
         <div class="form-group">
-          <label class="form-label required" for="inp-cf-amount">금액 (원)</label>
+          <div style="display:flex;align-items:center;margin-bottom:4px;">
+            <label class="form-label required" for="inp-cf-amount" style="margin-bottom:0;">금액 (원)</label>
+            <label class="manwon-unit-check" for="chk-manwon-cf">
+              <input type="checkbox" id="chk-manwon-cf" /> 만원 단위
+            </label>
+          </div>
           <input type="text" id="inp-cf-amount" placeholder="예: 500,000" inputmode="numeric" />
         </div>
         <div class="form-group fixed-140">
@@ -1252,6 +1279,7 @@ const GIST_FILE = 'investment-tracker-data.json';
 const SESSION_KEY_PAT = 'inv_tracker_pat';
 const SESSION_KEY_GIST = 'inv_tracker_gist_id';
 const SESSION_KEY_THEME = 'inv_tracker_theme';
+const LS_KEY_MANWON = 'inv_manwon_unit';
 const BROKER_COLORS = ['#0D9488','#3B82F6','#F59E0B','#EF4444','#8B5CF6','#EC4899','#10B981'];
 
 /* =====================================================
@@ -1319,6 +1347,19 @@ function datetimeLocalToISO(val) {
 function parseAmount(str) {
   const n = parseInt(String(str).replace(/[^0-9]/g, ''), 10);
   return isNaN(n) ? NaN : n;
+}
+function getManwonChecked() {
+  return document.getElementById('chk-manwon-bal').checked;
+}
+function updateManwonPlaceholders(checked) {
+  $('inp-balance').placeholder = checked ? '예: 150' : '예: 1,500,000';
+  $('inp-cf-amount').placeholder = checked ? '예: 50' : '예: 500,000';
+}
+function syncManwonCheckboxes(checked, source) {
+  if (source !== 'bal') $('chk-manwon-bal').checked = checked;
+  if (source !== 'cf') $('chk-manwon-cf').checked = checked;
+  updateManwonPlaceholders(checked);
+  localStorage.setItem(LS_KEY_MANWON, checked ? '1' : '0');
 }
 function formatInputAmount(input) {
   const raw = input.value.replace(/[^0-9]/g, '');
@@ -1968,9 +2009,12 @@ function setDefaultDatetime(inputId) {
   if (el) el.addEventListener('input', () => formatInputAmount(el));
 });
 
+$('chk-manwon-bal').addEventListener('change', e => syncManwonCheckboxes(e.target.checked, 'bal'));
+$('chk-manwon-cf').addEventListener('change', e => syncManwonCheckboxes(e.target.checked, 'cf'));
+
 $('btn-save-balance').addEventListener('click', async () => {
   if (state.activeTab === 'all') { toast('특정 증권사 탭에서 입력해주세요.', 'error'); return; }
-  const raw = parseAmount($('inp-balance').value);
+  const raw = parseAmount($('inp-balance').value) * (getManwonChecked() ? 10000 : 1);
   if (isNaN(raw) || raw <= 0) { toast('평가금액을 올바르게 입력해주세요.', 'error'); return; }
 
   const dateVal = $('inp-balance-date').value;
@@ -2012,7 +2056,7 @@ updateRadioStyle();
 $('btn-save-cashflow').addEventListener('click', async () => {
   if (state.activeTab === 'all') { toast('특정 증권사 탭에서 입력해주세요.', 'error'); return; }
   const type = document.querySelector('input[name="cf-type"]:checked')?.value;
-  const raw = parseAmount($('inp-cf-amount').value);
+  const raw = parseAmount($('inp-cf-amount').value) * (getManwonChecked() ? 10000 : 1);
   if (isNaN(raw) || raw <= 0) { toast('금액을 올바르게 입력해주세요.', 'error'); return; }
 
   const dateVal = $('inp-cf-date').value;
@@ -2969,6 +3013,10 @@ function init() {
   // Set default datetimes
   setDefaultDatetime('inp-balance-date');
   setDefaultDatetime('inp-cf-date');
+
+  // 만원 단위 체크박스 초기화
+  const manwonSaved = localStorage.getItem(LS_KEY_MANWON) === '1';
+  syncManwonCheckboxes(manwonSaved, null);
 
   // Auto-resume session (sessionStorage 우선, 없으면 localStorage)
   const pat = sessionStorage.getItem(SESSION_KEY_PAT) || localStorage.getItem(SESSION_KEY_PAT);
