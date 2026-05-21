@@ -935,7 +935,7 @@
         <div class="kpi-value num" id="kpi-pnl-val">—</div>
       </div>
       <div class="kpi-card" id="kpi-return">
-        <div class="kpi-label">수익률</div>
+        <div class="kpi-label" id="kpi-return-label">수익률</div>
         <div class="kpi-value num" id="kpi-return-val">—</div>
       </div>
     </div>
@@ -1072,6 +1072,13 @@
         <div class="form-group">
           <label class="form-label" for="inp-cf-memo">메모 (선택)</label>
           <input type="text" id="inp-cf-memo" placeholder="예: 월급날 추가 입금" />
+        </div>
+        <div class="form-group">
+          <div style="display:flex;align-items:center;margin-bottom:4px;">
+            <label class="form-label" for="inp-cf-pre-balance" style="margin-bottom:0;">직전 잔고 (원)</label>
+            <span style="font-size:0.72rem;color:var(--text-muted);margin-left:6px;">TWR 계산용 (선택)</span>
+          </div>
+          <input type="text" id="inp-cf-pre-balance" placeholder="입금/출금 직전 잔고" inputmode="numeric" />
         </div>
         <div class="form-group" style="flex:0 0 auto;min-width:0;">
           <label class="form-label">&nbsp;</label>
@@ -1354,6 +1361,7 @@ function getManwonChecked() {
 function updateManwonPlaceholders(checked) {
   $('inp-balance').placeholder = checked ? '예: 150' : '예: 1,500,000';
   $('inp-cf-amount').placeholder = checked ? '예: 50' : '예: 500,000';
+  $('inp-cf-pre-balance').placeholder = checked ? '직전 잔고 (만원)' : '입금/출금 직전 잔고';
 }
 function syncManwonCheckboxes(checked, source) {
   if (source !== 'bal') $('chk-manwon-bal').checked = checked;
@@ -1581,8 +1589,65 @@ $('btn-sync').addEventListener('click', async () => {
 /* =====================================================
    CALCULATIONS
 ===================================================== */
+/**
+ * TWR (시간가중수익률) 계산 — 직접 배열 전달 버전
+ * cf_id 가 연결된 잔고 기록이 하나도 없으면 null 반환 → 호출자가 단순 수익률로 폴백
+ * @param {Array} bals  - balance_records 배열 (broker 필터링 완료)
+ * @param {Array} cfs   - cashflow_records 배열 (broker 필터링 완료)
+ * @param {string|null} cutoffISO - 이 시점 이전 데이터만 사용
+ */
+function calcTWRFromData(bals, cfs, cutoffISO) {
+  const cutoff = cutoffISO ? new Date(cutoffISO) : null;
+  const filteredBals = (cutoff
+    ? bals.filter(b => new Date(b.recorded_at) <= cutoff)
+    : bals
+  ).slice().sort((a, b) => new Date(a.recorded_at) - new Date(b.recorded_at));
+
+  if (filteredBals.length < 2) return null;
+
+  const filteredCfs = cutoff ? cfs.filter(c => new Date(c.transacted_at) <= cutoff) : cfs;
+  const cfMap = {};
+  filteredCfs.forEach(cf => { cfMap[cf.id] = cf; });
+
+  // cf_id 연결된 잔고 기록이 없으면 TWR 계산 불가
+  if (!filteredBals.some(b => b.cf_id && cfMap[b.cf_id])) return null;
+
+  const subReturns = [];
+  for (let i = 0; i < filteredBals.length - 1; i++) {
+    const B_start = filteredBals[i];
+    const B_end   = filteredBals[i + 1];
+
+    // 직전 잔고 기록에 cf_id 가 있으면 해당 입출금을 반영한 구간 시작 자산을 계산
+    let effectiveStart = B_start.balance;
+    if (B_start.cf_id && cfMap[B_start.cf_id]) {
+      const cf = cfMap[B_start.cf_id];
+      effectiveStart = B_start.balance + (cf.type === 'deposit' ? cf.amount : -cf.amount);
+    }
+
+    if (effectiveStart <= 0) continue; // 구간 스킵
+    subReturns.push(B_end.balance / effectiveStart - 1);
+  }
+
+  if (subReturns.length === 0) return null;
+  // 구간 수익률 체인 연결: TWR = (1+r1)(1+r2)…(1+rn) - 1
+  return (subReturns.reduce((prod, r) => prod * (1 + r), 1) - 1) * 100;
+}
+
+/**
+ * TWR (시간가중수익률) — brokerId 기반 래퍼
+ */
+function calcTWR(brokerId, cutoffISO) {
+  const bals = state.data.balance_records.filter(r => r.broker_id === brokerId);
+  const cfs  = state.data.cashflow_records.filter(r => r.broker_id === brokerId);
+  return calcTWRFromData(bals, cfs, cutoffISO);
+}
+
 // 특정 시점 기준으로 수익률 계산 (잔액 기록 테이블용)
+// TWR 데이터가 있으면 TWR, 없으면 단순 수익률로 폴백
 function calcReturnAtTime(brokerId, balance, pointInTime) {
+  const twr = calcTWR(brokerId, pointInTime);
+  if (twr !== null) return twr;
+  // 폴백: 단순 수익률
   const cutoff = new Date(pointInTime);
   const cfs = state.data.cashflow_records.filter(r =>
     r.broker_id === brokerId && new Date(r.transacted_at) <= cutoff
@@ -1604,7 +1669,10 @@ function calcBroker(brokerId) {
   const latestBalance = bals.length > 0 ? bals[bals.length - 1].balance : 0;
 
   const pnl = latestBalance + totalWithdrawal - totalDeposit;
-  const returnPct = totalDeposit > 0 ? (pnl / totalDeposit) * 100 : null;
+  // TWR 시도 → 없으면 단순 수익률로 폴백
+  const twr = calcTWR(brokerId);
+  const returnPct = twr !== null ? twr : (totalDeposit > 0 ? (pnl / totalDeposit) * 100 : null);
+  const returnMethod = twr !== null ? 'twr' : 'simple';
 
   // 연환산 수익률 (CAGR) + 직전 기록 대비 delta
   let annualReturn = null;
@@ -1683,7 +1751,7 @@ function calcBroker(brokerId) {
   const monthCashflow = cfs.filter(r => new Date(r.transacted_at) >= monthStart)
     .reduce((s,r) => s + (r.type === 'deposit' ? r.amount : -r.amount), 0);
 
-  return { totalDeposit, totalWithdrawal, latestBalance, pnl, returnPct, annualReturn, annualReturnDelta, dayChange, weekChange, monthChange, weekCashflow, monthCashflow, bals };
+  return { totalDeposit, totalWithdrawal, latestBalance, pnl, returnPct, returnMethod, annualReturn, annualReturnDelta, dayChange, weekChange, monthChange, weekCashflow, monthCashflow, bals };
 }
 
 function calcAll() {
@@ -1756,9 +1824,11 @@ function calcAll() {
 function renderKPI() {
   if (state.activeTab === 'all') {
     const c = calcAll();
+    $('kpi-return-label').textContent = '수익률';
     setKPI(c.totalDeposit, c.totalBalance, c.pnl, c.returnPct, c.annualReturn, c.annualReturnDelta, c.dayChange, c.weekChange, c.monthChange, c.weekCashflow, c.monthCashflow);
   } else {
     const c = calcBroker(state.activeTab);
+    $('kpi-return-label').textContent = c.returnMethod === 'twr' ? '수익률 (TWR)' : '수익률';
     setKPI(c.totalDeposit, c.latestBalance, c.pnl, c.returnPct, c.annualReturn, c.annualReturnDelta, c.dayChange, c.weekChange, c.monthChange, c.weekCashflow, c.monthCashflow);
   }
 }
@@ -2004,7 +2074,7 @@ function setDefaultDatetime(inputId) {
 }
 
 // Format amount on input
-['inp-balance', 'inp-cf-amount', 'edit-balance-amount', 'edit-cf-amount'].forEach(id => {
+['inp-balance', 'inp-cf-amount', 'inp-cf-pre-balance', 'edit-balance-amount', 'edit-cf-amount'].forEach(id => {
   const el = $(id);
   if (el) el.addEventListener('input', () => formatInputAmount(el));
 });
@@ -2071,17 +2141,40 @@ $('btn-save-cashflow').addEventListener('click', async () => {
     memo: memo || null,
     created_at: now,
   };
+
+  // TWR 직전 잔고 처리
+  const preBalStr = $('inp-cf-pre-balance').value.trim();
+  const preBalRaw = preBalStr ? parseAmount(preBalStr) * (getManwonChecked() ? 10000 : 1) : NaN;
+  let balRec = null;
+  if (!isNaN(preBalRaw) && preBalRaw >= 0) {
+    balRec = {
+      id: uuid(),
+      broker_id: state.activeTab,
+      balance: preBalRaw,
+      recorded_at: rec.transacted_at,
+      memo: `[TWR] ${type === 'deposit' ? '입금' : '출금'} 직전 잔고`,
+      cf_id: rec.id,
+      created_at: now,
+    };
+  }
+
   state.data.cashflow_records.push(rec);
+  if (balRec) state.data.balance_records.push(balRec);
+
   const btn = $('btn-save-cashflow');
   try {
     await saveData(btn);
     $('inp-cf-amount').value = '';
     $('inp-cf-memo').value = '';
+    $('inp-cf-pre-balance').value = '';
     setDefaultDatetime('inp-cf-date');
-    toast(`${type === 'deposit' ? '입금' : '출금'} 기록이 저장되었습니다.`, 'success');
+    const label = type === 'deposit' ? '입금' : '출금';
+    const twrNote = balRec ? ' (TWR 잔고 포함)' : '';
+    toast(`${label} 기록이 저장되었습니다.${twrNote}`, 'success');
     renderAll();
   } catch {
     state.data.cashflow_records.pop();
+    if (balRec) state.data.balance_records.pop();
   }
 });
 
@@ -2369,9 +2462,11 @@ function buildDateRange(startKey, endKey) {
   return dates;
 }
 
-// 날짜→수익률 계산 (해당 날짜 기준 입출금 반영)
+// 날짜→수익률 계산 (TWR 우선, 폴백: 단순 수익률)
 function calcReturnByDate(brokerId, balance, dateKey) {
-  // dateKey 당일 23:59:59 까지의 입출금을 반영
+  const twr = calcTWR(brokerId, dateKey + 'T23:59:59');
+  if (twr !== null) return twr;
+  // 폴백: 단순 수익률
   const cutoffTime = new Date(dateKey + 'T23:59:59');
   const cfs = state.data.cashflow_records.filter(r =>
     r.broker_id === brokerId && new Date(r.transacted_at) <= cutoffTime
@@ -2436,8 +2531,11 @@ function generateChartAnnotations(balanceRecords, cashflowRecords, targetReturn 
   const cfs  = [...cashflowRecords].sort((a, b) => new Date(a.transacted_at) - new Date(b.transacted_at));
   if (bals.length === 0) return [];
 
-  // 특정 시점까지의 누적 입출금으로 수익률 계산
+  // 특정 시점까지 수익률 계산 (TWR 우선, 폴백: 단순 수익률)
   function getReturnAt(recordedAtISO, balance) {
+    const twr = calcTWRFromData(bals, cfs, recordedAtISO);
+    if (twr !== null) return twr;
+    // 폴백: 단순 수익률
     const cutoff = new Date(recordedAtISO);
     const relevant = cfs.filter(r => new Date(r.transacted_at) <= cutoff);
     const totalDeposit     = relevant.filter(r => r.type === 'deposit').reduce((s, r) => s + r.amount, 0);
