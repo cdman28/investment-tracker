@@ -782,6 +782,7 @@
       .data-mgmt { gap: 6px; }
       .modal { padding: 20px; }
       table { font-size: 0.78rem; }
+      .pie-legend-pct { display: none; }
     }
     @media (min-width: 768px) and (max-width: 1023px) {
       .kpi-grid { grid-template-columns: repeat(4, 1fr); }
@@ -2656,6 +2657,8 @@ function renderLineChart() {
     }
   }
 
+  const isMobile = window.innerWidth <= 767;
+
   state.lineChart = new Chart(ctx, {
     type: 'line',
     data: { datasets },
@@ -2708,6 +2711,7 @@ function renderLineChart() {
       responsive: true,
       maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
+      layout: { padding: { top: isMobile ? 20 : 30, right: isMobile ? 2 : 10, bottom: 0, left: 0 } },
       plugins: {
         legend: {
           display: datasets.length > 1,
@@ -2758,10 +2762,11 @@ function renderLineChart() {
           ticks: {
             color: textColor,
             font: { family: 'Pretendard', size: 11 },
-            callback: v => v === 0 ? '0%' : ((v >= 0 ? '+' : '') + v.toFixed(1) + '%')
+            callback: v => v === 0 ? '0%' : ((v >= 0 ? '+' : '') + Math.round(v) + '%')
           }
         },
         y2: {
+          display: !isMobile,
           position: 'right',
           min: yScaleMin,
           max: yScaleMax,
@@ -2769,7 +2774,7 @@ function renderLineChart() {
           ticks: {
             color: textColor,
             font: { family: 'Pretendard', size: 11 },
-            callback: v => v === 0 ? '0%' : ((v >= 0 ? '+' : '') + v.toFixed(1) + '%')
+            callback: v => v === 0 ? '0%' : ((v >= 0 ? '+' : '') + Math.round(v) + '%')
           }
         }
       }
@@ -2822,7 +2827,7 @@ function renderPieChart() {
         legend: { display: false },
         tooltip: {
           callbacks: {
-            label: ctx => `${ctx.label}: ${Math.round(ctx.raw).toLocaleString('ko-KR')}원 (${(ctx.raw/total*100).toFixed(1)}%)`
+            label: ctx => `${ctx.label}: ${Math.round(ctx.raw).toLocaleString('ko-KR')}원 (${Math.round(ctx.raw/total*100)}%)`
           }
         }
       }
@@ -2830,7 +2835,7 @@ function renderPieChart() {
   });
 
   data.forEach(d => {
-    const pct = (d.balance / total * 100).toFixed(1);
+    const pct = Math.round(d.balance / total * 100);
     const item = document.createElement('div');
     item.className = 'pie-legend-item';
     item.innerHTML = `<span class="pie-legend-dot" style="background:${d.color}"></span><span>${escHtml(d.name)}</span><span class="pie-legend-pct">${pct}%</span>`;
