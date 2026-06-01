@@ -1,5 +1,12 @@
 # Investment Tracker - 버전 히스토리
 
+## V1.1.1 (2026-06-02)
+### 버그 수정
+- **타임존 KST 고정**: 시스템 로컬 타임존이 KST가 아닌 환경에서도 날짜/시간이 항상 한국 시간(UTC+9)으로 표시·저장되도록 수정
+  - `formatDt`: `timeZone: 'Asia/Seoul'` 명시
+  - `toLocalDatetimeInput`: UTC+9 오프셋으로 KST 시간 직접 계산
+  - `datetimeLocalToISO`: 입력값을 KST(+09:00)로 해석하여 UTC ISO 변환
+
 ## V1.1.0 (2025-01-xx)
 ### 기능 추가
 - **설정탭 분리**: 증권사 편집 버튼을 탭바에서 제거하고, 별도 "설정" 탭으로 이동

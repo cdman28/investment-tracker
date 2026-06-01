@@ -1438,18 +1438,19 @@ function formatPct(n) {
 function formatDt(isoStr) {
   if (!isoStr) return '—';
   const d = new Date(isoStr);
-  return d.toLocaleDateString('ko-KR', { year:'numeric', month:'2-digit', day:'2-digit' })
-    + ' ' + d.toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' });
+  return d.toLocaleDateString('ko-KR', { year:'numeric', month:'2-digit', day:'2-digit', timeZone: 'Asia/Seoul' })
+    + ' ' + d.toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit', timeZone: 'Asia/Seoul' });
 }
 function toLocalDatetimeInput(isoStr) {
-  // Convert ISO to local datetime-local value
+  // Convert ISO to KST (UTC+9) datetime-local value
   const d = isoStr ? new Date(isoStr) : new Date();
+  const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
   const pad = v => String(v).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${kst.getUTCFullYear()}-${pad(kst.getUTCMonth()+1)}-${pad(kst.getUTCDate())}T${pad(kst.getUTCHours())}:${pad(kst.getUTCMinutes())}`;
 }
 function datetimeLocalToISO(val) {
-  // datetime-local → ISO string in local time
-  return new Date(val).toISOString();
+  // datetime-local 입력값을 KST(UTC+9)로 해석하여 UTC ISO 문자열로 변환
+  return new Date(val + ':00+09:00').toISOString();
 }
 function parseAmount(str) {
   const n = parseInt(String(str).replace(/[^0-9]/g, ''), 10);
