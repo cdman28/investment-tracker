@@ -1395,6 +1395,7 @@ const state = {
   pat: '',
   gistId: '',
   data: { version: '1.0', last_updated: '', brokers: [], balance_records: [], cashflow_records: [] },
+  baseData: null,         // 마지막으로 서버에서 로드한 데이터 스냅샷 (다중 기기 충돌 방지용)
   activeTab: 'all',       // 'all' | broker id
   activeRecordTab: 'balance', // 'balance' | 'cashflow'
   activePeriod: 'ALL',
@@ -1492,6 +1493,54 @@ function toast(msg, type = '') {
 }
 
 /* =====================================================
+   MULTI-DEVICE MERGE (다중 기기 충돌 방지)
+===================================================== */
+/**
+ * base: 우리가 로드했을 당시의 서버 데이터 스냅샷
+ * local: 현재 메모리 데이터 (수정된 상태)
+ * server: 방금 서버에서 새로 가져온 최신 데이터
+ *
+ * 병합 규칙:
+ *  - 로컬에서 추가한 레코드 → 병합 결과에 포함
+ *  - 로컬에서 삭제한 레코드 → 병합 결과에서 제외 (서버에 있어도)
+ *  - 로컬에서 수정한 레코드 → 로컬 버전 우선
+ *  - 다른 기기에서 추가한 레코드 (서버에만 존재) → 병합 결과에 포함
+ */
+function mergeData(base, local, server) {
+  const mergeCollection = (baseArr, localArr, serverArr) => {
+    const baseIds  = new Set((baseArr  || []).map(r => r.id));
+    const localMap = new Map((localArr || []).map(r => [r.id, r]));
+
+    // 로컬에서 삭제된 ID 목록: base에는 있었는데 local에 없는 것
+    const deletedByLocal = new Set(
+      (baseArr || []).filter(r => !localMap.has(r.id)).map(r => r.id)
+    );
+
+    // 서버 레코드 기반으로 시작 (삭제된 것 제외)
+    const result = (serverArr || [])
+      .filter(r => !deletedByLocal.has(r.id))
+      .map(r => localMap.has(r.id) ? localMap.get(r.id) : r); // 로컬 수정 반영
+
+    const resultIds = new Set(result.map(r => r.id));
+
+    // 로컬에서 새로 추가한 레코드 (base에 없고 local에만 있음)
+    (localArr || []).forEach(r => {
+      if (!baseIds.has(r.id) && !resultIds.has(r.id)) result.push(r);
+    });
+
+    return result;
+  };
+
+  return {
+    ...server,
+    brokers:          mergeCollection(base?.brokers,          local?.brokers,          server?.brokers),
+    balance_records:  mergeCollection(base?.balance_records,  local?.balance_records,  server?.balance_records),
+    cashflow_records: mergeCollection(base?.cashflow_records, local?.cashflow_records, server?.cashflow_records),
+    last_updated: new Date().toISOString(),
+  };
+}
+
+/* =====================================================
    GITHUB GIST API
 ===================================================== */
 async function gistGet() {
@@ -1544,9 +1593,22 @@ async function saveData(btnEl) {
     btnEl.disabled = true;
     btnEl.classList.add('btn-loading');
   }
-  state.data.last_updated = new Date().toISOString();
   try {
+    // Read-before-write: 서버 최신 데이터를 가져와서 병합 후 저장
+    const serverData = await gistGet();
+    if (serverData && state.baseData &&
+        serverData.last_updated !== state.baseData.last_updated) {
+      // 다른 기기에서 변경됨 → 병합
+      const merged = mergeData(state.baseData, state.data, serverData);
+      state.data = merged;
+      state.baseData = JSON.parse(JSON.stringify(merged));
+      renderAll();
+      toast('다른 기기의 변경 내용과 병합되었습니다.', 'success');
+    }
+
+    state.data.last_updated = new Date().toISOString();
     await gistPatch(state.data);
+    state.baseData = JSON.parse(JSON.stringify(state.data));
   } catch (err) {
     toast('저장 실패: ' + err.message, 'error');
     throw err;
@@ -1631,6 +1693,7 @@ $('btn-setup-enter').addEventListener('click', async () => {
       state.data = { version: '1.0', last_updated: new Date().toISOString(), brokers: [], balance_records: [], cashflow_records: [] };
       await gistPatch(state.data);
     }
+    state.baseData = JSON.parse(JSON.stringify(state.data));
     hideSetup();
     renderAll();
   } catch (err) {
@@ -1677,7 +1740,10 @@ $('btn-sync').addEventListener('click', async () => {
   btn.disabled = true;
   try {
     const loaded = await gistGet();
-    if (loaded && loaded.brokers) state.data = loaded;
+    if (loaded && loaded.brokers) {
+      state.data = loaded;
+      state.baseData = JSON.parse(JSON.stringify(loaded));
+    }
     renderAll();
     toast('동기화 완료!', 'success');
   } catch (err) {
@@ -3340,7 +3406,10 @@ function init() {
     state.pat = pat;
     state.gistId = gistId;
     gistGet().then(loaded => {
-      if (loaded && loaded.brokers) state.data = loaded;
+      if (loaded && loaded.brokers) {
+        state.data = loaded;
+        state.baseData = JSON.parse(JSON.stringify(loaded));
+      }
       hideSetup();
       renderAll();
     }).catch((err) => {
@@ -3361,6 +3430,37 @@ function init() {
 }
 
 init();
+
+/* =====================================================
+   다중 기기 자동 새로고침 (백그라운드 3분 초과 시)
+===================================================== */
+(function setupVisibilityRefresh() {
+  const REFRESH_THRESHOLD_MS = 3 * 60 * 1000; // 3분
+  let hiddenAt = null;
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      hiddenAt = Date.now();
+    } else {
+      if (!hiddenAt || !state.pat || !state.gistId) { hiddenAt = null; return; }
+      const elapsed = Date.now() - hiddenAt;
+      hiddenAt = null;
+      if (elapsed < REFRESH_THRESHOLD_MS) return;
+
+      // 3분 이상 자리 비운 경우 → 자동 새로고침
+      gistGet().then(loaded => {
+        if (!loaded || !loaded.brokers) return;
+        // 서버에 변경이 있는 경우에만 업데이트
+        if (loaded.last_updated !== state.data.last_updated) {
+          state.data = loaded;
+          state.baseData = JSON.parse(JSON.stringify(loaded));
+          renderAll();
+          toast('다른 기기의 최신 데이터로 자동 업데이트되었습니다.', 'success');
+        }
+      }).catch(() => {}); // 네트워크 오류는 조용히 무시
+    }
+  });
+})();
 </script>
 </body>
 </html>
