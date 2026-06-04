@@ -1886,21 +1886,24 @@ function calcBroker(brokerId) {
     }
   }
 
-  // 전일대비 변화
+  // 전일대비 변화 (가장 최근 기록과 그 직전 기록의 차이)
   let dayChange = null;
-  if (bals.length >= 1) {
-    const latestDate = new Date(bals[bals.length - 1].recorded_at);
-    latestDate.setHours(0, 0, 0, 0);
-    const prevDate = new Date(latestDate);
-    prevDate.setDate(prevDate.getDate() - 1);
-    const prevBals = bals.filter(b => {
-      const d = new Date(b.recorded_at);
-      d.setHours(0, 0, 0, 0);
-      return d.getTime() === prevDate.getTime();
-    });
-    if (prevBals.length > 0) {
-      const prevBalance = prevBals[prevBals.length - 1].balance;
-      dayChange = latestBalance - prevBalance;
+  if (bals.length >= 2) {
+    const latestBal = bals[bals.length - 1];
+    let prevBal = null;
+    // 가장 최근 기록과 날짜가 다른, 바로 직전 기록을 찾음
+    for (let i = bals.length - 2; i >= 0; i--) {
+      const d = new Date(bals[i].recorded_at);
+      const latestD = new Date(latestBal.recorded_at);
+      d.setHours(0,0,0,0);
+      latestD.setHours(0,0,0,0);
+      if (d.getTime() < latestD.getTime()) {
+        prevBal = bals[i];
+        break;
+      }
+    }
+    if (prevBal) {
+      dayChange = latestBal.balance - prevBal.balance;
     }
   }
 
