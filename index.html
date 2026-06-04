@@ -999,18 +999,21 @@
         <div class="kpi-value num" id="kpi-pnl-val">—</div>
       </div>
       <div class="kpi-card" id="kpi-return">
-        <div class="kpi-label" id="kpi-return-label">수익률</div>
+        <div class="kpi-label">수익률</div>
         <div class="kpi-value num" id="kpi-return-val">—</div>
+      </div>
+      <div class="kpi-card" id="kpi-rate">
+        <div class="kpi-label">수익률</div>
+        <div class="kpi-annual-row">
+          <div class="kpi-value num" id="kpi-rate-val">—</div>
+          <div class="kpi-annual-delta" id="kpi-rate-delta"></div>
+        </div>
       </div>
     </div>
     <div class="kpi-aux-grid" id="kpi-aux-grid">
-      <div class="kpi-card aux">
+      <div class="kpi-card aux" id="kpi-annual-rate">
         <div class="kpi-label">연환산 수익률</div>
-        <div class="kpi-annual-row">
-          <div class="kpi-value num" id="kpi-annual-val">—</div>
-          <span class="kpi-annual-delta num" id="kpi-annual-delta"></span>
-        </div>
-        <div class="kpi-sub">CAGR · 직전 대비</div>
+        <div class="kpi-value num" id="kpi-annual-rate-val">—</div>
       </div>
       <div class="kpi-card aux">
         <div class="kpi-label">전일대비 변화</div>
@@ -2637,8 +2640,7 @@ function calcReturnByDate(brokerId, balance, dateKey) {
   const totalDeposit = cfs.filter(r => r.type === 'deposit').reduce((s, r) => s + r.amount, 0);
   const totalWithdrawal = cfs.filter(r => r.type === 'withdrawal').reduce((s, r) => s + r.amount, 0);
   if (totalDeposit === 0) return null;
-  const pnl = balance + totalWithdrawal - totalDeposit;
-  return (pnl / totalDeposit) * 100;
+  return (balance + totalWithdrawal - totalDeposit) / totalDeposit * 100;
 }
 
 // X축 날짜 포맷 (기간별 적절히)
@@ -2828,7 +2830,6 @@ function renderLineChart() {
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
   const gridColor = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)';
   const zeroLineColor = isDark ? 'rgba(255,255,255,0.7)' : '#000000';
-  const textColor = isDark ? '#F0EFE9' : '#000000';
 
   let datasets = [];
   let hasData = false;
@@ -3292,7 +3293,7 @@ $('broker-settings-list').addEventListener('click', e => {
         state.data.brokers = state.data.brokers.filter(br => br.id !== id);
         state.data.balance_records = state.data.balance_records.filter(r => r.broker_id !== id);
         state.data.cashflow_records = state.data.cashflow_records.filter(r => r.broker_id !== id);
-        if (state.activeTab === id) state.activeTab = 'settings';
+        if (state.activeTab === id) state.activeTab = 'all';
         try { await saveData(null); toast(`"${b.name}"이(가) 삭제되었습니다.`); } catch {}
         renderAll();
       }
