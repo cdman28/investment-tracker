@@ -2044,6 +2044,9 @@ function setKPI(invested, balance, pnl, returnPct, returnPctDelta, annualReturn,
   annualEl.textContent = annualReturn !== null ? formatPct(annualReturn) : '—';
   if (annualReturn !== null) applyColorClass(annualEl, annualReturn);
 
+  dayEl.textContent = dayChange !== null ? formatMoneySign(dayChange) : '—';
+  if (dayChange !== null) applyColorClass(dayEl, dayChange);
+
   weekEl.textContent = weekChange !== null ? formatMoneySign(weekChange) : '—';
   if (weekChange !== null) applyColorClass(weekEl, weekChange);
 
