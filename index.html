@@ -999,21 +999,18 @@
         <div class="kpi-value num" id="kpi-pnl-val">—</div>
       </div>
       <div class="kpi-card" id="kpi-return">
-        <div class="kpi-label">수익률</div>
-        <div class="kpi-value num" id="kpi-return-val">—</div>
-      </div>
-      <div class="kpi-card" id="kpi-rate">
-        <div class="kpi-label">수익률</div>
+        <div class="kpi-label" id="kpi-return-label">수익률</div>
         <div class="kpi-annual-row">
-          <div class="kpi-value num" id="kpi-rate-val">—</div>
-          <div class="kpi-annual-delta" id="kpi-rate-delta"></div>
+          <div class="kpi-value num" id="kpi-return-val">—</div>
+          <span class="kpi-annual-delta num" id="kpi-return-delta"></span>
         </div>
       </div>
     </div>
     <div class="kpi-aux-grid" id="kpi-aux-grid">
-      <div class="kpi-card aux" id="kpi-annual-rate">
+      <div class="kpi-card aux">
         <div class="kpi-label">연환산 수익률</div>
-        <div class="kpi-value num" id="kpi-annual-rate-val">—</div>
+        <div class="kpi-value num" id="kpi-annual-val">—</div>
+        <div class="kpi-sub">CAGR</div>
       </div>
       <div class="kpi-card aux">
         <div class="kpi-label">전일대비 변화</div>
@@ -1847,6 +1844,7 @@ function calcBroker(brokerId) {
   // 연환산 수익률 (CAGR) + 직전 기록 대비 delta
   let annualReturn = null;
   let annualReturnDelta = null;
+  let returnPctDelta = null;
   if (returnPct !== null && cfs.length > 0 && bals.length > 0) {
     const sortedCfs = cfs.slice().sort((a, b) => new Date(a.transacted_at) - new Date(b.transacted_at));
     const firstCfDate = new Date(sortedCfs[0].transacted_at);
@@ -1876,6 +1874,7 @@ function calcBroker(brokerId) {
           const prevWithdrawal = prevCfs.filter(r => r.type === 'withdrawal').reduce((s, r) => s + r.amount, 0);
           if (prevDeposit > 0) {
             const prevReturnPct = (prevBal.balance + prevWithdrawal - prevDeposit) / prevDeposit * 100;
+            returnPctDelta = returnPct - prevReturnPct;
             const prevDays = (new Date(prevBal.recorded_at) - firstCfDate) / (1000 * 60 * 60 * 24);
             if (prevDays >= 1) {
               const prevAnnualReturn = prevReturnPct * (365 / prevDays);
@@ -1921,7 +1920,7 @@ function calcBroker(brokerId) {
   const monthCashflow = cfs.filter(r => new Date(r.transacted_at) >= monthStart)
     .reduce((s,r) => s + (r.type === 'deposit' ? r.amount : -r.amount), 0);
 
-  return { totalDeposit, totalWithdrawal, latestBalance, pnl, returnPct, returnMethod, annualReturn, annualReturnDelta, dayChange, weekChange, monthChange, weekCashflow, monthCashflow, bals };
+  return { totalDeposit, totalWithdrawal, latestBalance, pnl, returnPct, returnPctDelta, returnMethod, annualReturn, annualReturnDelta, dayChange, weekChange, monthChange, weekCashflow, monthCashflow, bals };
 }
 
 function calcAll() {
@@ -1962,6 +1961,13 @@ function calcAll() {
   }
   if (!anyDay) dayChange = null;
 
+  // 수익률 delta: 브로커별 delta 평균
+  let returnPctDelta = null;
+  const returnDeltaVals = brokerCalcs.map(bc => bc.calc.returnPctDelta).filter(v => v !== null);
+  if (returnDeltaVals.length > 0) {
+    returnPctDelta = returnDeltaVals.reduce((s, v) => s + v, 0) / returnDeltaVals.length;
+  }
+
   // 연환산 수익률 delta: 브로커별 delta 평균
   let annualReturnDelta = null;
   const deltaVals = brokerCalcs.map(bc => bc.calc.annualReturnDelta).filter(v => v !== null);
@@ -1985,7 +1991,7 @@ function calcAll() {
     monthCashflow += bc.calc.monthCashflow ?? 0;
   }
 
-  return { totalDeposit, totalWithdrawal, totalBalance, pnl, returnPct, annualReturn, annualReturnDelta, dayChange, weekChange, monthChange, weekCashflow, monthCashflow, brokerCalcs };
+  return { totalDeposit, totalWithdrawal, totalBalance, pnl, returnPct, returnPctDelta, annualReturn, annualReturnDelta, dayChange, weekChange, monthChange, weekCashflow, monthCashflow, brokerCalcs };
 }
 
 /* =====================================================
@@ -1995,21 +2001,21 @@ function renderKPI() {
   if (state.activeTab === 'all') {
     const c = calcAll();
     $('kpi-return-label').textContent = '수익률';
-    setKPI(c.totalDeposit, c.totalBalance, c.pnl, c.returnPct, c.annualReturn, c.annualReturnDelta, c.dayChange, c.weekChange, c.monthChange, c.weekCashflow, c.monthCashflow);
+    setKPI(c.totalDeposit, c.totalBalance, c.pnl, c.returnPct, c.returnPctDelta, c.annualReturn, c.annualReturnDelta, c.dayChange, c.weekChange, c.monthChange, c.weekCashflow, c.monthCashflow);
   } else {
     const c = calcBroker(state.activeTab);
     $('kpi-return-label').textContent = c.returnMethod === 'twr' ? '수익률 (TWR)' : '수익률';
-    setKPI(c.totalDeposit, c.latestBalance, c.pnl, c.returnPct, c.annualReturn, c.annualReturnDelta, c.dayChange, c.weekChange, c.monthChange, c.weekCashflow, c.monthCashflow);
+    setKPI(c.totalDeposit, c.latestBalance, c.pnl, c.returnPct, c.returnPctDelta, c.annualReturn, c.annualReturnDelta, c.dayChange, c.weekChange, c.monthChange, c.weekCashflow, c.monthCashflow);
   }
 }
 
-function setKPI(invested, balance, pnl, returnPct, annualReturn, annualReturnDelta, dayChange, weekChange, monthChange, weekCashflow, monthCashflow) {
+function setKPI(invested, balance, pnl, returnPct, returnPctDelta, annualReturn, annualReturnDelta, dayChange, weekChange, monthChange, weekCashflow, monthCashflow) {
   const investedEl = $('kpi-invested-val');
   const balanceEl = $('kpi-balance-val');
   const pnlEl = $('kpi-pnl-val');
   const returnEl = $('kpi-return-val');
+  const returnDeltaEl = $('kpi-return-delta');
   const annualEl = $('kpi-annual-val');
-  const annualDeltaEl = $('kpi-annual-delta');
   const dayEl = $('kpi-day-val');
   const weekEl = $('kpi-week-val');
   const monthEl = $('kpi-month-val');
@@ -2023,20 +2029,17 @@ function setKPI(invested, balance, pnl, returnPct, annualReturn, annualReturnDel
   returnEl.textContent = returnPct !== null ? formatPct(returnPct) : '—';
   if (returnPct !== null) applyColorClass(returnEl, returnPct);
 
-  annualEl.textContent = annualReturn !== null ? formatPct(annualReturn) : '—';
-  if (annualReturn !== null) applyColorClass(annualEl, annualReturn);
-
-  // 연환산 수익률 delta 표시
-  annualDeltaEl.textContent = '';
-  annualDeltaEl.className = 'kpi-annual-delta num';
-  if (annualReturnDelta !== null) {
-    const emoji = annualReturnDelta >= 0 ? '▲' : '▼';
-    annualDeltaEl.textContent = `(${emoji} ${Math.abs(annualReturnDelta).toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%)`;  
-    applyColorClass(annualDeltaEl, annualReturnDelta);
+  // 수익률 직전 대비 delta 표시
+  returnDeltaEl.textContent = '';
+  returnDeltaEl.className = 'kpi-annual-delta num';
+  if (returnPctDelta !== null) {
+    const emoji = returnPctDelta >= 0 ? '▲' : '▼';
+    returnDeltaEl.textContent = `(${emoji} ${Math.abs(returnPctDelta).toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%)`;
+    applyColorClass(returnDeltaEl, returnPctDelta);
   }
 
-  dayEl.textContent = dayChange !== null ? formatMoneySign(dayChange) : '—';
-  if (dayChange !== null) applyColorClass(dayEl, dayChange);
+  annualEl.textContent = annualReturn !== null ? formatPct(annualReturn) : '—';
+  if (annualReturn !== null) applyColorClass(annualEl, annualReturn);
 
   weekEl.textContent = weekChange !== null ? formatMoneySign(weekChange) : '—';
   if (weekChange !== null) applyColorClass(weekEl, weekChange);
@@ -2640,7 +2643,8 @@ function calcReturnByDate(brokerId, balance, dateKey) {
   const totalDeposit = cfs.filter(r => r.type === 'deposit').reduce((s, r) => s + r.amount, 0);
   const totalWithdrawal = cfs.filter(r => r.type === 'withdrawal').reduce((s, r) => s + r.amount, 0);
   if (totalDeposit === 0) return null;
-  return (balance + totalWithdrawal - totalDeposit) / totalDeposit * 100;
+  const pnl = balance + totalWithdrawal - totalDeposit;
+  return (pnl / totalDeposit) * 100;
 }
 
 // X축 날짜 포맷 (기간별 적절히)
@@ -2830,6 +2834,7 @@ function renderLineChart() {
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
   const gridColor = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)';
   const zeroLineColor = isDark ? 'rgba(255,255,255,0.7)' : '#000000';
+  const textColor = isDark ? '#F0EFE9' : '#000000';
 
   let datasets = [];
   let hasData = false;
@@ -3293,7 +3298,7 @@ $('broker-settings-list').addEventListener('click', e => {
         state.data.brokers = state.data.brokers.filter(br => br.id !== id);
         state.data.balance_records = state.data.balance_records.filter(r => r.broker_id !== id);
         state.data.cashflow_records = state.data.cashflow_records.filter(r => r.broker_id !== id);
-        if (state.activeTab === id) state.activeTab = 'all';
+        if (state.activeTab === id) state.activeTab = 'settings';
         try { await saveData(null); toast(`"${b.name}"이(가) 삭제되었습니다.`); } catch {}
         renderAll();
       }
