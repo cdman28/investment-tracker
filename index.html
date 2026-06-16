@@ -922,6 +922,10 @@
       .collapsible-body.is-collapsed { display: none !important; }
     }
     @media (min-width: 768px) {
+      .collapsible-toggle { display: flex; }
+      .collapsible-toggle:hover { background: var(--bg-surface-2); color: var(--text-primary); }
+      .section-title { cursor: pointer; }
+      .collapsible-body.is-collapsed { display: none !important; }
       /* 차트 섹션은 데스크톱에서 접기 무시 (항상 펼침) */
       #chart-collapse-body.is-collapsed { display: block !important; }
     }
@@ -1038,7 +1042,7 @@
         <div style="display:flex;align-items:center;justify-content:space-between;gap:4px;margin-bottom:2px;">
           <div class="kpi-label" id="kpi-return-label" style="margin-bottom:0;">수익률</div>
           <div class="kpi-return-toggle" role="group" aria-label="수익률 표시 방식">
-            <button class="kpi-rtog-btn active" id="btn-rtog-cumulative" title="출금액 포함 최초 투자원금 대비 누적 쟁돌 비율">누적</button>
+            <button class="kpi-rtog-btn active" id="btn-rtog-cumulative" title="출금액 포함 최초 투자원금 대비 누적 수익 비율">누적</button>
             <button class="kpi-rtog-btn" id="btn-rtog-principal" title="총 손익 ÷ 총 투자원금">원금대비</button>
           </div>
         </div>
@@ -1046,7 +1050,7 @@
           <div class="kpi-value num" id="kpi-return-val">—</div>
           <span class="kpi-annual-delta num" id="kpi-return-delta"></span>
         </div>
-        <div class="kpi-return-desc" id="kpi-return-desc">출금액 포함 누적 쟁돌 ÷ 총 투자원금</div>
+        <div class="kpi-return-desc" id="kpi-return-desc">출금액 포함 누적 수익 ÷ 총 투자원금</div>
       </div>
     </div>
     <div class="kpi-aux-grid" id="kpi-aux-grid">
@@ -1208,12 +1212,6 @@
           <label class="form-label">&nbsp;</label>
           <button class="btn btn-primary" id="btn-save-cashflow">저장</button>
         </div>
-      </div>
-      <div style="margin-top:8px;padding:6px 2px 0;border-top:1px solid var(--border);">
-        <label class="manwon-unit-check" for="chk-auto-adjust-bals" title="저장 시 해당 증권사의 채기일 이후 잔액 기록들을 입출금액만큼 자동으로 증감">
-          <input type="checkbox" id="chk-auto-adjust-bals" />
-          <span>이후 잔액 기록 자동 보정 <span style="color:var(--text-muted);font-weight:400;font-size:0.72rem;">— 해당 날짜 이후의 잔액 기록을 입출금액만큼 자동 증감</span></span>
-        </label>
       </div>
       </div>
     </div>
@@ -2089,7 +2087,7 @@ function renderKPI() {
   const isCumulative = mode === 'cumulative';
   const label = isCumulative ? '수익률 (완전누적)' : '수익률 (원금대비)';
   const desc  = isCumulative
-    ? '출금액 포함 누적 쟁돌 ÷ 총 투자원금'
+    ? '출금액 포함 누적 수익 ÷ 총 투자원금'
     : '총 손익 (= 현재잔고 + 총출금 − 총입금) ÷ 총 투자원금';
   const returnPct = isCumulative ? c.cumulativeReturnPct : c.principalBasedReturnPct;
   $('kpi-return-label').textContent = label;
@@ -2415,12 +2413,12 @@ $('btn-save-cashflow').addEventListener('click', async () => {
     created_at: now,
   };
 
-  // TWR 직후 잔고 처리
+  // TWR 직후 잔고 처리 (선택사항)
   const preBalStr = $('inp-cf-pre-balance').value.trim();
   const preBalRaw = preBalStr ? parseAmount(preBalStr) * (getManwonChecked() ? 10000 : 1) : NaN;
-  let balRec = null;
+  let twrBalRec = null;
   if (!isNaN(preBalRaw) && preBalRaw >= 0) {
-    balRec = {
+    twrBalRec = {
       id: uuid(),
       broker_id: state.activeTab,
       balance: preBalRaw,
@@ -2431,24 +2429,26 @@ $('btn-save-cashflow').addEventListener('click', async () => {
     };
   }
 
-  // 이후 잔액 자동 보정 대상 계산
-  const autoAdjust = $('chk-auto-adjust-bals')?.checked;
-  const cfDate = new Date(rec.transacted_at);
-  const delta = type === 'deposit' ? raw : -raw;
-  // cf_id 있는 TWR 보조 기록은 보정 제외
-  const adjustTargets = autoAdjust
-    ? state.data.balance_records.filter(b =>
-        b.broker_id === state.activeTab &&
-        new Date(b.recorded_at) > cfDate &&
-        !b.cf_id
-      )
-    : [];
+  // 입출금 시점 잔액 자동 스냅샷 생성
+  const allBals = state.data.balance_records.filter(b => b.broker_id === state.activeTab);
+  allBals.sort((a, b) => new Date(b.recorded_at) - new Date(a.recorded_at));
+  let currentBalance = allBals.length > 0 ? allBals[0].balance : 0;
+  const autoSnapBalance = currentBalance + (type === 'deposit' ? raw : -raw);
+  
+  const autoBalRec = {
+    id: uuid(),
+    broker_id: state.activeTab,
+    balance: autoSnapBalance,
+    recorded_at: rec.transacted_at,
+    memo: `[AUTO] ${type === 'deposit' ? '입금' : '출금'} 시점 잔액`,
+    cf_id: rec.id,
+    created_at: now,
+  };
 
   // 메모리에 반영
   state.data.cashflow_records.push(rec);
-  if (balRec) state.data.balance_records.push(balRec);
-  const originalBalances = adjustTargets.map(b => b.balance);
-  adjustTargets.forEach(b => { b.balance += delta; });
+  state.data.balance_records.push(autoBalRec);
+  if (twrBalRec) state.data.balance_records.push(twrBalRec);
 
   const btn = $('btn-save-cashflow');
   try {
@@ -2458,15 +2458,13 @@ $('btn-save-cashflow').addEventListener('click', async () => {
     $('inp-cf-pre-balance').value = '';
     setDefaultDatetime('inp-cf-date');
     const label = type === 'deposit' ? '입금' : '출금';
-    const twrNote = balRec ? ' (TWR 잔고 포함)' : '';
-    const adjNote = adjustTargets.length > 0 ? ` · 이후 잔액 ${adjustTargets.length}건 자동 보정` : '';
-    toast(`${label} 기록이 저장되었습니다.${twrNote}${adjNote}`, 'success');
+    const twrNote = twrBalRec ? ' (TWR 잔고 포함)' : '';
+    toast(`${label} 기록이 저장되었습니다. 잔액 스냅샷 자동 기록됨.${twrNote}`, 'success');
     renderAll();
   } catch {
     state.data.cashflow_records.pop();
-    if (balRec) state.data.balance_records.pop();
-    // 자동 보정 롤백
-    adjustTargets.forEach((b, i) => { b.balance = originalBalances[i]; });
+    state.data.balance_records.pop();
+    if (twrBalRec) state.data.balance_records.pop();
   }
 });
 
