@@ -293,6 +293,39 @@
       font-weight: 700;
       line-height: 1;
     }
+    /* 수익률 모드 토글 */
+    .kpi-return-toggle {
+      display: flex;
+      gap: 2px;
+      background: var(--bg-surface-2);
+      border-radius: var(--radius-sm);
+      padding: 2px;
+      flex-shrink: 0;
+    }
+    .kpi-rtog-btn {
+      font-size: 0.62rem;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 3px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: background var(--transition), color var(--transition);
+      white-space: nowrap;
+      font-family: var(--font-base);
+    }
+    .kpi-rtog-btn.active {
+      background: var(--bg-surface);
+      color: var(--accent);
+      box-shadow: var(--shadow-sm);
+    }
+    .kpi-return-desc {
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      margin-top: 3px;
+      line-height: 1.4;
+    }
     .kpi-card.aux .kpi-value { font-size: 1.25rem; }
     .kpi-cf-note {
       font-size: 0.7rem;
@@ -1002,11 +1035,18 @@
         <div class="kpi-value num" id="kpi-pnl-val">—</div>
       </div>
       <div class="kpi-card" id="kpi-return">
-        <div class="kpi-label" id="kpi-return-label">수익률</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:4px;margin-bottom:2px;">
+          <div class="kpi-label" id="kpi-return-label" style="margin-bottom:0;">수익률</div>
+          <div class="kpi-return-toggle" role="group" aria-label="수익률 표시 방식">
+            <button class="kpi-rtog-btn active" id="btn-rtog-cumulative" title="출금액 포함 최초 투자원금 대비 누적 쟁돌 비율">누적</button>
+            <button class="kpi-rtog-btn" id="btn-rtog-principal" title="총 손익 ÷ 총 투자원금">원금대비</button>
+          </div>
+        </div>
         <div class="kpi-annual-row">
           <div class="kpi-value num" id="kpi-return-val">—</div>
           <span class="kpi-annual-delta num" id="kpi-return-delta"></span>
         </div>
+        <div class="kpi-return-desc" id="kpi-return-desc">출금액 포함 누적 쟁돌 ÷ 총 투자원금</div>
       </div>
     </div>
     <div class="kpi-aux-grid" id="kpi-aux-grid">
@@ -1168,6 +1208,12 @@
           <label class="form-label">&nbsp;</label>
           <button class="btn btn-primary" id="btn-save-cashflow">저장</button>
         </div>
+      </div>
+      <div style="margin-top:8px;padding:6px 2px 0;border-top:1px solid var(--border);">
+        <label class="manwon-unit-check" for="chk-auto-adjust-bals" title="저장 시 해당 증권사의 채기일 이후 잔액 기록들을 입출금액만큼 자동으로 증감">
+          <input type="checkbox" id="chk-auto-adjust-bals" />
+          <span>이후 잔액 기록 자동 보정 <span style="color:var(--text-muted);font-weight:400;font-size:0.72rem;">— 해당 날짜 이후의 잔액 기록을 입출금액만큼 자동 증감</span></span>
+        </label>
       </div>
       </div>
     </div>
@@ -1415,6 +1461,7 @@ const state = {
   confirmCallback: null,
   restorePendingData: null,
   mobileCollapse: { chart: false, balanceInput: false, cashflowInput: false },
+  kpiReturnMode: 'cumulative', // 'cumulative' | 'principal'
 };
 
 /* =====================================================
@@ -1851,12 +1898,16 @@ function calcBroker(brokerId) {
   const latestBalance = bals.length > 0 ? bals[bals.length - 1].balance : 0;
 
   const pnl = latestBalance + totalWithdrawal - totalDeposit;
-  // TWR 시도 → 없으면 단순 수익률로 폴백
-  const twr = calcTWR(brokerId);
-  const returnPct = twr !== null ? twr : (totalDeposit > 0 ? (pnl / totalDeposit) * 100 : null);
-  const returnMethod = twr !== null ? 'twr' : 'simple';
 
-  // 연환산 수익률 (CAGR) + 직전 기록 대비 delta
+  // ── 두 수익률 모두 단순 산술 수익률 사용 (TWR 아님) ────────────────
+  // 총 누적수익률: (현재잔고 + 총출금 - 총입금) / 총입금
+  const cumulativeReturnPct = totalDeposit > 0 ? (pnl / totalDeposit) * 100 : null;
+  // 투자원금 대비 수익률: 동일 공식 (총손익 / 총투자원금)
+  const principalBasedReturnPct = cumulativeReturnPct;
+  // 하위 호환성: returnPct는 단순 수익률로 고정 (TWR 사용 안 함)
+  const returnPct = cumulativeReturnPct;
+
+  // 연환산 수익률 CAGR + 직전 기록 대비 delta (모두 단순 수익률 기준)
   let annualReturn = null;
   let annualReturnDelta = null;
   let returnPctDelta = null;
@@ -1866,10 +1917,10 @@ function calcBroker(brokerId) {
     const lastBalDate = new Date(bals[bals.length - 1].recorded_at);
     const days = (lastBalDate - firstCfDate) / (1000 * 60 * 60 * 24);
     if (days >= 1) {
-      // CAGR 공식: (1 + returnPct/100)^(365/days) - 1
+      // CAGR: (1 + returnPct/100)^(365/days) - 1
       annualReturn = (Math.pow(1 + returnPct / 100, 365 / days) - 1) * 100;
 
-      // 직전 잔고 기록 기준 이전 CAGR 계산 (같은 날 입력값 제외, 이전 날의 가장 최근 기록)
+      // 직전 잔고 기록 기준 delta (같은 날 입력값 제외)
       if (bals.length >= 2) {
         const latestDay = new Date(bals[bals.length - 1].recorded_at);
         latestDay.setHours(0, 0, 0, 0);
@@ -1877,25 +1928,21 @@ function calcBroker(brokerId) {
         for (let i = bals.length - 2; i >= 0; i--) {
           const d = new Date(bals[i].recorded_at);
           d.setHours(0, 0, 0, 0);
-          if (d.getTime() !== latestDay.getTime()) {
-            prevBal = bals[i];
-            break;
-          }
+          if (d.getTime() !== latestDay.getTime()) { prevBal = bals[i]; break; }
         }
         if (prevBal) {
-          // 직전 시점 수익률: TWR 우선, 폴백 단순
-          const prevTwr = calcTWR(brokerId, prevBal.recorded_at);
+          // 직전 시점 단순 수익률 (TWR 사용 안 함)
           const prevCutoff = new Date(prevBal.recorded_at);
           const prevCfs = cfs.filter(r => new Date(r.transacted_at) <= prevCutoff);
           const prevDeposit    = prevCfs.filter(r => r.type === 'deposit').reduce((s, r) => s + r.amount, 0);
           const prevWithdrawal = prevCfs.filter(r => r.type === 'withdrawal').reduce((s, r) => s + r.amount, 0);
-          const prevReturnPct = prevTwr !== null ? prevTwr
-            : (prevDeposit > 0 ? (prevBal.balance + prevWithdrawal - prevDeposit) / prevDeposit * 100 : null);
-          if (prevReturnPct !== null) {
-            returnPctDelta = returnPct - prevReturnPct;
+          const prevPnl = prevBal.balance + prevWithdrawal - prevDeposit;
+          const prevCumReturn = prevDeposit > 0 ? prevPnl / prevDeposit * 100 : null;
+          if (prevCumReturn !== null) {
+            returnPctDelta = returnPct - prevCumReturn;
             const prevDays = (new Date(prevBal.recorded_at) - firstCfDate) / (1000 * 60 * 60 * 24);
             if (prevDays >= 1) {
-              const prevAnnualReturn = (Math.pow(1 + prevReturnPct / 100, 365 / prevDays) - 1) * 100;
+              const prevAnnualReturn = (Math.pow(1 + prevCumReturn / 100, 365 / prevDays) - 1) * 100;
               annualReturnDelta = annualReturn - prevAnnualReturn;
             }
           }
@@ -1904,7 +1951,7 @@ function calcBroker(brokerId) {
     }
   }
 
-  // 전일대비 변화 (가장 최근 기록과 날짜가 다른 직전 기록과의 차이)
+  // 전일대비 변화
   let dayChange = null;
   if (bals.length >= 2) {
     const latestBal = bals[bals.length - 1];
@@ -1912,29 +1959,20 @@ function calcBroker(brokerId) {
     for (let i = bals.length - 2; i >= 0; i--) {
       const d = new Date(bals[i].recorded_at);
       const latestD = new Date(latestBal.recorded_at);
-      d.setHours(0,0,0,0);
-      latestD.setHours(0,0,0,0);
-      if (d.getTime() < latestD.getTime()) {
-        prevBal = bals[i];
-        break;
-      }
+      d.setHours(0,0,0,0); latestD.setHours(0,0,0,0);
+      if (d.getTime() < latestD.getTime()) { prevBal = bals[i]; break; }
     }
-    if (prevBal) {
-      dayChange = latestBal.balance - prevBal.balance;
-    }
+    if (prevBal) dayChange = latestBal.balance - prevBal.balance;
   }
 
-  // 전고점 계산: 가장 높은 잔고를 기록한 시점의 수익금/수익률
+  // 전고점: 가장 높은 잔고 시점의 단순 수익금/수익률
   let peakPnl = null;
   let peakReturn = null;
   if (bals.length > 0) {
     let peakBalance = -Infinity;
     let peakBal = null;
     for (const b of bals) {
-      if (b.balance > peakBalance) {
-        peakBalance = b.balance;
-        peakBal = b;
-      }
+      if (b.balance > peakBalance) { peakBalance = b.balance; peakBal = b; }
     }
     if (peakBal) {
       const cutoff = new Date(peakBal.recorded_at);
@@ -1942,14 +1980,11 @@ function calcBroker(brokerId) {
       const depUpTo = cfsUpTo.filter(r => r.type === 'deposit').reduce((s, r) => s + r.amount, 0);
       const wdUpTo  = cfsUpTo.filter(r => r.type === 'withdrawal').reduce((s, r) => s + r.amount, 0);
       peakPnl = peakBal.balance + wdUpTo - depUpTo;
-      // TWR 우선, 폴백 단순 수익률
-      const peakTwr = calcTWR(brokerId, peakBal.recorded_at);
-      peakReturn = peakTwr !== null ? peakTwr
-        : (depUpTo > 0 ? peakPnl / depUpTo * 100 : null);
+      peakReturn = depUpTo > 0 ? peakPnl / depUpTo * 100 : null;
     }
   }
 
-  return { totalDeposit, totalWithdrawal, latestBalance, pnl, returnPct, returnPctDelta, returnMethod, annualReturn, annualReturnDelta, dayChange, peakPnl, peakReturn, bals };
+  return { totalDeposit, totalWithdrawal, latestBalance, pnl, cumulativeReturnPct, principalBasedReturnPct, returnPct, returnPctDelta, annualReturn, annualReturnDelta, dayChange, peakPnl, peakReturn, bals };
 }
 
 function calcAll() {
@@ -1965,19 +2000,16 @@ function calcAll() {
 
   const pnl = totalBalance + totalWithdrawal - totalDeposit;
 
-  // 전체 TWR 시도 (모든 브로커 통합) → 폴백: 단순 수익률
-  const allBals = state.data.balance_records.slice();
-  const allCfs  = state.data.cashflow_records.slice();
-  const twrResult = calcTWRFromData(allBals, allCfs, null);
-  const returnPct = twrResult.value !== null ? twrResult.value
-    : (totalDeposit > 0 ? (pnl / totalDeposit) * 100 : null);
-  const returnMethod = twrResult.value !== null ? 'twr' : 'simple';
+  // ── 두 수익률 모두 단순 산술 수익률 (TWR 사용 안 함) ──────────────
+  const cumulativeReturnPct = totalDeposit > 0 ? (pnl / totalDeposit) * 100 : null;
+  const principalBasedReturnPct = cumulativeReturnPct;
+  const returnPct = cumulativeReturnPct; // 하위 호환성
 
-  // 연환산 수익률 CAGR (전체: 가장 오래된 입금일 ~ 가장 최근 잔고 기준)
+  // CAGR (전체: 가장 오래된 입금일 ~ 가장 최근 잔고 기준)
   let annualReturn = null;
   if (returnPct !== null) {
-    const allCfsSorted = allCfs.slice().sort((a, b) => new Date(a.transacted_at) - new Date(b.transacted_at));
-    const allBalsSorted = allBals.slice().sort((a, b) => new Date(a.recorded_at) - new Date(b.recorded_at));
+    const allCfsSorted = state.data.cashflow_records.slice().sort((a, b) => new Date(a.transacted_at) - new Date(b.transacted_at));
+    const allBalsSorted = state.data.balance_records.slice().sort((a, b) => new Date(a.recorded_at) - new Date(b.recorded_at));
     if (allCfsSorted.length > 0 && allBalsSorted.length > 0) {
       const firstCfDate = new Date(allCfsSorted[0].transacted_at);
       const lastBalDate = new Date(allBalsSorted[allBalsSorted.length - 1].recorded_at);
@@ -2016,53 +2048,55 @@ function calcAll() {
   // 전고점 계산 (전체 잔액 기록 통합)
   let peakPnl = null;
   let peakReturn = null;
-  const allBalsSorted2 = allBals.slice().sort((a, b) => new Date(a.recorded_at) - new Date(b.recorded_at));
+  const _allBals = state.data.balance_records.slice();
+  const _allCfs  = state.data.cashflow_records.slice();
+  const allBalsSorted2 = _allBals.slice().sort((a, b) => new Date(a.recorded_at) - new Date(b.recorded_at));
   if (allBalsSorted2.length > 0) {
-    // 각 시점의 전체 잔액 합산 → 합산 최고점 탐색
     const timestamps = [...new Set(allBalsSorted2.map(b => b.recorded_at))].sort();
     let peakTotalBalance = -Infinity;
     let peakTimestamp = null;
     for (const ts of timestamps) {
       let totalAtTs = 0;
       for (const broker of state.data.brokers) {
-        const brokerBals = allBals.filter(b => b.broker_id === broker.id)
+        const brokerBals = _allBals.filter(b => b.broker_id === broker.id)
           .sort((a, b) => new Date(a.recorded_at) - new Date(b.recorded_at));
         const lastAtTs = brokerBals.filter(b => b.recorded_at <= ts).pop();
         if (lastAtTs) totalAtTs += lastAtTs.balance;
       }
-      if (totalAtTs > peakTotalBalance) {
-        peakTotalBalance = totalAtTs;
-        peakTimestamp = ts;
-      }
+      if (totalAtTs > peakTotalBalance) { peakTotalBalance = totalAtTs; peakTimestamp = ts; }
     }
     if (peakTimestamp) {
       const cutoff = new Date(peakTimestamp);
-      const cfsUpTo = allCfs.filter(cf => new Date(cf.transacted_at) <= cutoff);
+      const cfsUpTo = _allCfs.filter(cf => new Date(cf.transacted_at) <= cutoff);
       const depUpTo = cfsUpTo.filter(r => r.type === 'deposit').reduce((s, r) => s + r.amount, 0);
       const wdUpTo  = cfsUpTo.filter(r => r.type === 'withdrawal').reduce((s, r) => s + r.amount, 0);
       peakPnl = peakTotalBalance + wdUpTo - depUpTo;
-      const peakTwrResult = calcTWRFromData(allBals, allCfs, peakTimestamp);
-      peakReturn = peakTwrResult.value !== null ? peakTwrResult.value
-        : (depUpTo > 0 ? peakPnl / depUpTo * 100 : null);
+      peakReturn = depUpTo > 0 ? peakPnl / depUpTo * 100 : null;
     }
   }
 
-  return { totalDeposit, totalWithdrawal, totalBalance, pnl, returnPct, returnPctDelta, returnMethod, annualReturn, annualReturnDelta, dayChange, peakPnl, peakReturn, brokerCalcs };
+  return { totalDeposit, totalWithdrawal, totalBalance, pnl, cumulativeReturnPct, principalBasedReturnPct, returnPct, returnPctDelta, annualReturn, annualReturnDelta, dayChange, peakPnl, peakReturn, brokerCalcs };
 }
 
 /* =====================================================
    RENDER — KPI
 ===================================================== */
 function renderKPI() {
-  if (state.activeTab === 'all') {
-    const c = calcAll();
-    $('kpi-return-label').textContent = c.returnMethod === 'twr' ? '수익률 (TWR)' : '수익률';
-    setKPI(c.totalDeposit, c.totalBalance, c.pnl, c.returnPct, c.returnPctDelta, c.annualReturn, c.annualReturnDelta, c.dayChange, c.peakPnl, c.peakReturn);
-  } else {
-    const c = calcBroker(state.activeTab);
-    $('kpi-return-label').textContent = c.returnMethod === 'twr' ? '수익률 (TWR)' : '수익률';
-    setKPI(c.totalDeposit, c.latestBalance, c.pnl, c.returnPct, c.returnPctDelta, c.annualReturn, c.annualReturnDelta, c.dayChange, c.peakPnl, c.peakReturn);
-  }
+  const c = state.activeTab === 'all' ? calcAll() : calcBroker(state.activeTab);
+  const invested = state.activeTab === 'all' ? c.totalBalance : c.latestBalance;
+  // 토글 모드에 따라 라벨 및 설명 코피 결정
+  const mode = state.kpiReturnMode;
+  const isCumulative = mode === 'cumulative';
+  const label = isCumulative ? '수익률 (완전누적)' : '수익률 (원금대비)';
+  const desc  = isCumulative
+    ? '출금액 포함 누적 쟁돌 ÷ 총 투자원금'
+    : '총 손익 (= 현재잔고 + 총출금 − 총입금) ÷ 총 투자원금';
+  const returnPct = isCumulative ? c.cumulativeReturnPct : c.principalBasedReturnPct;
+  $('kpi-return-label').textContent = label;
+  const descEl = $('kpi-return-desc');
+  if (descEl) descEl.textContent = desc;
+  setKPI(c.totalDeposit, state.activeTab === 'all' ? c.totalBalance : c.latestBalance,
+    c.pnl, returnPct, c.returnPctDelta, c.annualReturn, c.annualReturnDelta, c.dayChange, c.peakPnl, c.peakReturn);
 }
 
 function setKPI(invested, balance, pnl, returnPct, returnPctDelta, annualReturn, annualReturnDelta, dayChange, peakPnl, peakReturn) {
@@ -2381,7 +2415,7 @@ $('btn-save-cashflow').addEventListener('click', async () => {
     created_at: now,
   };
 
-  // TWR 직전 잔고 처리
+  // TWR 직후 잔고 처리
   const preBalStr = $('inp-cf-pre-balance').value.trim();
   const preBalRaw = preBalStr ? parseAmount(preBalStr) * (getManwonChecked() ? 10000 : 1) : NaN;
   let balRec = null;
@@ -2397,8 +2431,24 @@ $('btn-save-cashflow').addEventListener('click', async () => {
     };
   }
 
+  // 이후 잔액 자동 보정 대상 계산
+  const autoAdjust = $('chk-auto-adjust-bals')?.checked;
+  const cfDate = new Date(rec.transacted_at);
+  const delta = type === 'deposit' ? raw : -raw;
+  // cf_id 있는 TWR 보조 기록은 보정 제외
+  const adjustTargets = autoAdjust
+    ? state.data.balance_records.filter(b =>
+        b.broker_id === state.activeTab &&
+        new Date(b.recorded_at) > cfDate &&
+        !b.cf_id
+      )
+    : [];
+
+  // 메모리에 반영
   state.data.cashflow_records.push(rec);
   if (balRec) state.data.balance_records.push(balRec);
+  const originalBalances = adjustTargets.map(b => b.balance);
+  adjustTargets.forEach(b => { b.balance += delta; });
 
   const btn = $('btn-save-cashflow');
   try {
@@ -2409,11 +2459,14 @@ $('btn-save-cashflow').addEventListener('click', async () => {
     setDefaultDatetime('inp-cf-date');
     const label = type === 'deposit' ? '입금' : '출금';
     const twrNote = balRec ? ' (TWR 잔고 포함)' : '';
-    toast(`${label} 기록이 저장되었습니다.${twrNote}`, 'success');
+    const adjNote = adjustTargets.length > 0 ? ` · 이후 잔액 ${adjustTargets.length}건 자동 보정` : '';
+    toast(`${label} 기록이 저장되었습니다.${twrNote}${adjNote}`, 'success');
     renderAll();
   } catch {
     state.data.cashflow_records.pop();
     if (balRec) state.data.balance_records.pop();
+    // 자동 보정 롤백
+    adjustTargets.forEach((b, i) => { b.balance = originalBalances[i]; });
   }
 });
 
@@ -3419,6 +3472,27 @@ function toggleCollapse(key, bodyId, btnId) {
   applyCollapseState(bodyId, btnId, state.mobileCollapse[key]);
 }
 
+/* =====================================================
+   KPI 수익률 토글 (누적 / 원금대비)
+===================================================== */
+function applyReturnToggleUI() {
+  const isCumulative = state.kpiReturnMode === 'cumulative';
+  $('btn-rtog-cumulative').classList.toggle('active', isCumulative);
+  $('btn-rtog-principal').classList.toggle('active', !isCumulative);
+}
+$('btn-rtog-cumulative').addEventListener('click', () => {
+  state.kpiReturnMode = 'cumulative';
+  localStorage.setItem('inv_kpi_return_mode', 'cumulative');
+  applyReturnToggleUI();
+  renderKPI();
+});
+$('btn-rtog-principal').addEventListener('click', () => {
+  state.kpiReturnMode = 'principal';
+  localStorage.setItem('inv_kpi_return_mode', 'principal');
+  applyReturnToggleUI();
+  renderKPI();
+});
+
 $('chart-section-header').addEventListener('click', () => {
   if (window.innerWidth > 767) return;
   toggleCollapse('chart', 'chart-collapse-body', 'chart-collapse-btn');
@@ -3474,6 +3548,11 @@ function init() {
   if (window.innerWidth <= 767) {
     state.mobileCollapse.chart = localStorage.getItem(LS_COLLAPSE.chart) === '1';
   }
+
+  // 수익률 토글 모드 복원
+  const savedReturnMode = localStorage.getItem('inv_kpi_return_mode');
+  if (savedReturnMode === 'principal') state.kpiReturnMode = 'principal';
+  applyReturnToggleUI();
 
   // Theme
   const savedTheme = sessionStorage.getItem(SESSION_KEY_THEME)
