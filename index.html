@@ -1057,7 +1057,7 @@
       <div class="kpi-card aux">
         <div class="kpi-label">연환산 수익률</div>
         <div class="kpi-value num" id="kpi-annual-val">—</div>
-        <div class="kpi-sub">CAGR</div>
+        <div class="kpi-sub">단순연환산</div>
       </div>
       <div class="kpi-card aux">
         <div class="kpi-label">전일대비 변화</div>
@@ -1905,7 +1905,7 @@ function calcBroker(brokerId) {
   // 하위 호환성: returnPct는 단순 수익률로 고정 (TWR 사용 안 함)
   const returnPct = cumulativeReturnPct;
 
-  // 연환산 수익률 CAGR + 직전 기록 대비 delta (모두 단순 수익률 기준)
+  // 연환산 수익률 (단순 비례) + 직전 기록 대비 delta (모두 단순 수익률 기준)
   let annualReturn = null;
   let annualReturnDelta = null;
   let returnPctDelta = null;
@@ -1915,8 +1915,8 @@ function calcBroker(brokerId) {
     const lastBalDate = new Date(bals[bals.length - 1].recorded_at);
     const days = (lastBalDate - firstCfDate) / (1000 * 60 * 60 * 24);
     if (days >= 1) {
-      // CAGR: (1 + returnPct/100)^(365/days) - 1
-      annualReturn = (Math.pow(1 + returnPct / 100, 365 / days) - 1) * 100;
+      // 단순 비례 연환산: 총수익률 × (365 / 경과일수)
+      annualReturn = returnPct * (365 / days);
 
       // 직전 잔고 기록 기준 delta (같은 날 입력값 제외)
       if (bals.length >= 2) {
@@ -1940,7 +1940,7 @@ function calcBroker(brokerId) {
             returnPctDelta = returnPct - prevCumReturn;
             const prevDays = (new Date(prevBal.recorded_at) - firstCfDate) / (1000 * 60 * 60 * 24);
             if (prevDays >= 1) {
-              const prevAnnualReturn = (Math.pow(1 + prevCumReturn / 100, 365 / prevDays) - 1) * 100;
+              const prevAnnualReturn = prevCumReturn * (365 / prevDays);
               annualReturnDelta = annualReturn - prevAnnualReturn;
             }
           }
@@ -2003,7 +2003,7 @@ function calcAll() {
   const principalBasedReturnPct = cumulativeReturnPct;
   const returnPct = cumulativeReturnPct; // 하위 호환성
 
-  // CAGR (전체: 가장 오래된 입금일 ~ 가장 최근 잔고 기준)
+  // 연환산 수익률 (단순 비례: 가장 오래된 입금일 ~ 가장 최근 잔고 기준)
   let annualReturn = null;
   if (returnPct !== null) {
     const allCfsSorted = state.data.cashflow_records.slice().sort((a, b) => new Date(a.transacted_at) - new Date(b.transacted_at));
@@ -2013,7 +2013,7 @@ function calcAll() {
       const lastBalDate = new Date(allBalsSorted[allBalsSorted.length - 1].recorded_at);
       const days = (lastBalDate - firstCfDate) / (1000 * 60 * 60 * 24);
       if (days >= 1) {
-        annualReturn = (Math.pow(1 + returnPct / 100, 365 / days) - 1) * 100;
+        annualReturn = returnPct * (365 / days);
       }
     }
   }
