@@ -2763,11 +2763,8 @@ function buildDateRange(startKey, endKey) {
   return dates;
 }
 
-// 날짜→수익률 계산 (TWR 우선, 폴백: 단순 수익률)
+// 날짜→수익률 계산 (단순 수익률만 사용, 대시보드/테이블과 동일)
 function calcReturnByDate(brokerId, balance, dateKey) {
-  const twr = calcTWR(brokerId, dateKey + 'T23:59:59');
-  if (twr !== null) return twr;
-  // 폴백: 단순 수익률
   const cutoffTime = new Date(dateKey + 'T23:59:59');
   const cfs = state.data.cashflow_records.filter(r =>
     r.broker_id === brokerId && new Date(r.transacted_at) <= cutoffTime
@@ -2832,11 +2829,8 @@ function generateChartAnnotations(balanceRecords, cashflowRecords, targetReturn 
   const cfs  = [...cashflowRecords].sort((a, b) => new Date(a.transacted_at) - new Date(b.transacted_at));
   if (bals.length === 0) return [];
 
-  // 특정 시점까지 수익률 계산 (TWR 우선, 폴백: 단순 수익률)
+  // 특정 시점까지 수익률 계산 (단순 수익률만 사용, 대시보드/테이블과 동일)
   function getReturnAt(recordedAtISO, balance) {
-    const twrResult = calcTWRFromData(bals, cfs, recordedAtISO);
-    if (twrResult.value !== null) return twrResult.value;
-    // 폴백: 단순 수익률
     const cutoff = new Date(recordedAtISO);
     const relevant = cfs.filter(r => new Date(r.transacted_at) <= cutoff);
     const totalDeposit     = relevant.filter(r => r.type === 'deposit').reduce((s, r) => s + r.amount, 0);
