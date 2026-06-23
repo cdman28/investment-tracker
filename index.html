@@ -1027,7 +1027,7 @@
     <!-- KPI -->
     <div class="kpi-grid" id="kpi-grid">
       <div class="kpi-card" id="kpi-invested">
-        <div class="kpi-label">총 투자금액</div>
+        <div class="kpi-label">현 투자금액</div>
         <div class="kpi-value num" id="kpi-invested-val">—</div>
       </div>
       <div class="kpi-card" id="kpi-balance">
@@ -1089,7 +1089,7 @@
       <!-- Line chart -->
       <div class="card chart-card">
         <div class="chart-header">
-          <div class="card-title" style="margin-bottom:0;">자산 추이</div>
+          <div class="card-title" style="margin-bottom:0;">수익률 추이</div>
           <div class="period-btns" id="period-btns">
             <button class="period-btn" data-period="1M">1M</button>
             <button class="period-btn" data-period="3M">3M</button>
@@ -1979,7 +1979,8 @@ function calcBroker(brokerId) {
     }
   }
 
-  return { totalDeposit, totalWithdrawal, latestBalance, pnl, cumulativeReturnPct, principalBasedReturnPct, returnPct, returnPctDelta, annualReturn, annualReturnDelta, dayChange, peakPnl, peakReturn, bals };
+  const currentInvestment = totalDeposit - totalWithdrawal;
+  return { totalDeposit, totalWithdrawal, currentInvestment, latestBalance, pnl, cumulativeReturnPct, principalBasedReturnPct, returnPct, returnPctDelta, annualReturn, annualReturnDelta, dayChange, peakPnl, peakReturn, bals };
 }
 
 function calcAll() {
@@ -2070,7 +2071,8 @@ function calcAll() {
     }
   }
 
-  return { totalDeposit, totalWithdrawal, totalBalance, pnl, cumulativeReturnPct, principalBasedReturnPct, returnPct, returnPctDelta, annualReturn, annualReturnDelta, dayChange, peakPnl, peakReturn, brokerCalcs };
+  const currentInvestment = totalDeposit - totalWithdrawal;
+  return { totalDeposit, totalWithdrawal, currentInvestment, totalBalance, pnl, cumulativeReturnPct, principalBasedReturnPct, returnPct, returnPctDelta, annualReturn, annualReturnDelta, dayChange, peakPnl, peakReturn, brokerCalcs };
 }
 
 /* =====================================================
@@ -2078,7 +2080,7 @@ function calcAll() {
 ===================================================== */
 function renderKPI() {
   const c = state.activeTab === 'all' ? calcAll() : calcBroker(state.activeTab);
-  const invested = state.activeTab === 'all' ? c.totalBalance : c.latestBalance;
+  const invested = c.currentInvestment;
   // 토글 모드에 따라 라벨 및 설명 코피 결정
   const mode = state.kpiReturnMode;
   const isCumulative = mode === 'cumulative';
