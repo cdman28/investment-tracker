@@ -2092,7 +2092,7 @@ function renderKPI() {
   $('kpi-return-label').textContent = label;
   const descEl = $('kpi-return-desc');
   if (descEl) descEl.textContent = desc;
-  setKPI(c.totalDeposit, state.activeTab === 'all' ? c.totalBalance : c.latestBalance,
+  setKPI(invested, state.activeTab === 'all' ? c.totalBalance : c.latestBalance,
     c.pnl, returnPct, c.returnPctDelta, c.annualReturn, c.annualReturnDelta, c.dayChange, c.peakPnl, c.peakReturn);
 }
 
