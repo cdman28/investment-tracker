@@ -1042,15 +1042,15 @@
         <div style="display:flex;align-items:center;justify-content:space-between;gap:4px;margin-bottom:2px;">
           <div class="kpi-label" id="kpi-return-label" style="margin-bottom:0;color:#3B82F6;">수익률</div>
           <div class="kpi-return-toggle" role="group" aria-label="수익률 표시 방식">
-            <button class="kpi-rtog-btn active" id="btn-rtog-cumulative" title="출금액 포함 최초 투자원금 대비 누적 수익 비율">누적</button>
-            <button class="kpi-rtog-btn" id="btn-rtog-principal" title="총 손익 ÷ 총 투자원금">원금대비</button>
+            <button class="kpi-rtog-btn active" id="btn-rtog-cumulative" title="구간 수익률 체인 곱셈 — 입출금 영향 제거, 순수 운용 성과 (TWR)">정밀(TWR)</button>
+            <button class="kpi-rtog-btn" id="btn-rtog-principal" title="현재잔고 ÷ 현재 투자중인 원금 — 지금 넣어둔 돈 대비 얼마나 불었나">체감</button>
           </div>
         </div>
         <div class="kpi-annual-row">
           <div class="kpi-value num" id="kpi-return-val">—</div>
           <span class="kpi-annual-delta num" id="kpi-return-delta"></span>
         </div>
-        <div class="kpi-return-desc" id="kpi-return-desc">출금액 포함 누적 수익 ÷ 총 투자원금</div>
+        <div class="kpi-return-desc" id="kpi-return-desc">구간 수익률 체인 곱셈 — 입출금 영향 제거, 순수 운용 성과</div>
       </div>
     </div>
     <div class="kpi-aux-grid" id="kpi-aux-grid">
@@ -1870,7 +1870,7 @@ function calcTWR(brokerId, cutoffISO) {
 }
 
 // 특정 시점 기준으로 수익률 계산 (잔액 기록 테이블용)
-// 대시보드와 동일하게 단순 수익률만 사용 (TWR 사용 안 함)
+// 테이블 표시: 단순 누적 수익률 (pnl / totalDeposit)
 function calcReturnAtTime(brokerId, balance, pointInTime) {
   const cutoff = new Date(pointInTime);
   const cfs = state.data.cashflow_records.filter(r =>
@@ -1893,16 +1893,19 @@ function calcBroker(brokerId) {
   const latestBalance = bals.length > 0 ? bals[bals.length - 1].balance : 0;
 
   const pnl = latestBalance + totalWithdrawal - totalDeposit;
+  const currentInvestment = totalDeposit - totalWithdrawal;
 
-  // ── 두 수익률 모두 단순 산술 수익률 사용 (TWR 아님) ────────────────
-  // 총 누적수익률: (현재잔고 + 총출금 - 총입금) / 총입금
-  const cumulativeReturnPct = totalDeposit > 0 ? (pnl / totalDeposit) * 100 : null;
-  // 투자원금 대비 수익률: 동일 공식 (총손익 / 총투자원금)
-  const principalBasedReturnPct = cumulativeReturnPct;
-  // 하위 호환성: returnPct는 단순 수익률로 고정 (TWR 사용 안 함)
-  const returnPct = cumulativeReturnPct;
+  // 연환산·delta 계산 기준: 단순 수익률 (지금 방식 유지)
+  const returnPct = totalDeposit > 0 ? (pnl / totalDeposit) * 100 : null;
 
-  // 연환산 수익률 (단순 비례) + 직전 기록 대비 delta (모두 단순 수익률 기준)
+  // 모드 A: 정밀 수익률 (TWR) — 입출금 영향 제거, 순수 운용 성과
+  const twrResult = calcTWRFromData(bals, cfs, null);
+  const cumulativeReturnPct = twrResult.value !== null ? twrResult.value : returnPct;
+
+  // 모드 B: 체감 수익률 — 현재 잔고 vs 현재 투자중인 원금
+  const principalBasedReturnPct = currentInvestment > 0 ? (latestBalance - currentInvestment) / currentInvestment * 100 : null;
+
+  // 연환산 수익률 (단순 비례) + 직전 기록 대비 delta (단순 수익률 기준)
   let annualReturn = null;
   let annualReturnDelta = null;
   let returnPctDelta = null;
@@ -1926,7 +1929,7 @@ function calcBroker(brokerId) {
           if (d.getTime() !== latestDay.getTime()) { prevBal = bals[i]; break; }
         }
         if (prevBal) {
-          // 직전 시점 단순 수익률 (TWR 사용 안 함)
+          // 직전 시점 단순 수익률 (연환산·delta 계산용)
           const prevCutoff = new Date(prevBal.recorded_at);
           const prevCfs = cfs.filter(r => new Date(r.transacted_at) <= prevCutoff);
           const prevDeposit    = prevCfs.filter(r => r.type === 'deposit').reduce((s, r) => s + r.amount, 0);
@@ -1979,7 +1982,6 @@ function calcBroker(brokerId) {
     }
   }
 
-  const currentInvestment = totalDeposit - totalWithdrawal;
   return { totalDeposit, totalWithdrawal, currentInvestment, latestBalance, pnl, cumulativeReturnPct, principalBasedReturnPct, returnPct, returnPctDelta, annualReturn, annualReturnDelta, dayChange, peakPnl, peakReturn, bals };
 }
 
@@ -1995,11 +1997,20 @@ function calcAll() {
   });
 
   const pnl = totalBalance + totalWithdrawal - totalDeposit;
+  const currentInvestment = totalDeposit - totalWithdrawal;
 
-  // ── 두 수익률 모두 단순 산술 수익률 (TWR 사용 안 함) ──────────────
-  const cumulativeReturnPct = totalDeposit > 0 ? (pnl / totalDeposit) * 100 : null;
-  const principalBasedReturnPct = cumulativeReturnPct;
-  const returnPct = cumulativeReturnPct; // 하위 호환성
+  // 연환산·delta 계산 기준: 단순 수익률 (지금 방식 유지)
+  const returnPct = totalDeposit > 0 ? (pnl / totalDeposit) * 100 : null;
+
+  // 모드 A: 정밀 수익률 (TWR) — 브로커별 TWR 가중평균 (가중치: 총입금액)
+  const _validTwr = brokerCalcs.filter(bc => bc.calc.cumulativeReturnPct !== null && bc.calc.totalDeposit > 0);
+  const cumulativeReturnPct = _validTwr.length > 0
+    ? _validTwr.reduce((s, bc) => s + bc.calc.cumulativeReturnPct * bc.calc.totalDeposit, 0)
+      / _validTwr.reduce((s, bc) => s + bc.calc.totalDeposit, 0)
+    : returnPct;
+
+  // 모드 B: 체감 수익률 — 현재 잔고 vs 현재 투자중인 원금
+  const principalBasedReturnPct = currentInvestment > 0 ? (totalBalance - currentInvestment) / currentInvestment * 100 : null;
 
   // 연환산 수익률 (단순 비례: 가장 오래된 입금일 ~ 가장 최근 잔고 기준)
   let annualReturn = null;
@@ -2071,7 +2082,6 @@ function calcAll() {
     }
   }
 
-  const currentInvestment = totalDeposit - totalWithdrawal;
   return { totalDeposit, totalWithdrawal, currentInvestment, totalBalance, pnl, cumulativeReturnPct, principalBasedReturnPct, returnPct, returnPctDelta, annualReturn, annualReturnDelta, dayChange, peakPnl, peakReturn, brokerCalcs };
 }
 
@@ -2084,10 +2094,10 @@ function renderKPI() {
   // 토글 모드에 따라 라벨 및 설명 코피 결정
   const mode = state.kpiReturnMode;
   const isCumulative = mode === 'cumulative';
-  const label = isCumulative ? '수익률 (완전누적)' : '수익률 (원금대비)';
+  const label = isCumulative ? '수익률 (TWR)' : '수익률 (체감)';
   const desc  = isCumulative
-    ? '출금액 포함 누적 수익 ÷ 총 투자원금'
-    : '총 손익 (= 현재잔고 + 총출금 − 총입금) ÷ 총 투자원금';
+    ? '구간 수익률 체인 곱셈 — 입출금 영향 제거, 순수 운용 성과'
+    : '현재잔고 − 현재투자원금 ÷ 현재투자원금 (지금 넣어둔 돈 대비)';
   const returnPct = isCumulative ? c.cumulativeReturnPct : c.principalBasedReturnPct;
   $('kpi-return-label').textContent = label;
   const descEl = $('kpi-return-desc');
