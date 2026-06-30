@@ -1144,6 +1144,7 @@
             </label>
           </div>
           <input type="text" id="inp-balance" placeholder="예: 1,500,000" inputmode="numeric" />
+          <div id="balance-return-preview" style="font-size:0.8rem;margin-top:5px;min-height:1.3em;"></div>
         </div>
         <div class="form-group fixed-140">
           <label class="form-label" for="inp-balance-date">기록 날짜/시간</label>
@@ -2334,6 +2335,25 @@ function setDefaultDatetime(inputId) {
   if (el) el.addEventListener('input', () => formatInputAmount(el));
 });
 
+// 잔액 입력 시 체감 수익률 미리보기
+function updateBalanceReturnPreview() {
+  const previewEl = $('balance-return-preview');
+  if (!previewEl) return;
+  if (state.activeTab === 'all') { previewEl.textContent = ''; return; }
+  const isManwon = $('chk-manwon-bal')?.checked;
+  const raw = parseAmount($('inp-balance').value) * (isManwon ? 10000 : 1);
+  if (isNaN(raw) || raw <= 0) { previewEl.textContent = ''; return; }
+  const c = calcBroker(state.activeTab);
+  const inv = c.currentInvestment;
+  if (!inv || inv <= 0) { previewEl.textContent = ''; return; }
+  const pct = (raw - inv) / inv * 100;
+  const sign = pct >= 0 ? '+' : '-';
+  const color = pct >= 0 ? 'var(--color-success)' : 'var(--color-error)';
+  const absF = Math.abs(pct).toLocaleString('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  previewEl.innerHTML = `체감 수익률 <strong style="color:${color}">${sign}${absF}%</strong>`;
+}
+$('inp-balance').addEventListener('input', updateBalanceReturnPreview);
+
 // 수정 모달 만원 단위 체크박스 — 메인 체크박스와 연동
 function syncEditManwonBal(checked) {
   const amountEl = $('edit-balance-amount');
@@ -2359,7 +2379,7 @@ function syncEditManwonCf(checked) {
 $('edit-chk-manwon-bal').addEventListener('change', e => syncEditManwonBal(e.target.checked));
 $('edit-chk-manwon-cf').addEventListener('change',  e => syncEditManwonCf(e.target.checked));
 
-$('chk-manwon-bal').addEventListener('change', e => syncManwonCheckboxes(e.target.checked, 'bal'));
+$('chk-manwon-bal').addEventListener('change', e => { syncManwonCheckboxes(e.target.checked, 'bal'); updateBalanceReturnPreview(); });
 $('chk-manwon-cf').addEventListener('change', e => syncManwonCheckboxes(e.target.checked, 'cf'));
 
 $('btn-save-balance').addEventListener('click', async () => {
@@ -3195,6 +3215,10 @@ function renderLineChart() {
         x: {
           type: 'time',
           time: xFmt,
+          ...(period !== 'ALL' ? {
+            min: getPeriodCutoff(period).getTime(),
+            max: (() => { const d = new Date(); d.setHours(23, 59, 59, 999); return d.getTime(); })()
+          } : {}),
           grid: { color: gridColor },
           ticks: {
             color: textColor,
